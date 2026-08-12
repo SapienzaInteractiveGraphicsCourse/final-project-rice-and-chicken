@@ -1,0 +1,15 @@
+body {
+    margin: 0;
+    overflow: hidden; 
+    background-color: #000;
+}
+
+#ui-overlay {
+    position: absolute;
+    top: 20px;
+    left: 20px;
+    color: #00ffcc;
+    font-family: 'Courier New', Courier, monospace;
+    pointer-events: none; 
+    text-shadow: 0 0 5px #00ffcc;
+}
