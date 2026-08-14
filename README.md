@@ -15,7 +15,7 @@
 ---
 
 ## 🎮 Project Description
-**Dimension Shift: Sci-Fi Arena** is a 3D third-person shooter with a fixed isometric camera, built entirely using **Three.js** (WebGL). The player controls a character inside a dynamic arena and must survive waves of incoming enemies.
+**Dimension Shift: Sci-Fi Arena** is a 3D third-person shooter with a movable camera, built entirely using **Three.js** (WebGL). The player controls a character inside a dynamic arena and must survive waves of incoming enemies.
 
 The core mechanic of the game is the **Dimension Shift**: by pressing TAB, the entire arena instantly changes its geometry and aesthetic style, shifting from a **Low-Poly/Toon (Cartoon)** look to a **Realistic (PBR - Physically Based Rendering)** style. This feature goes beyond visuals, dynamically altering material properties and lighting calculations directly on the GPU.
 
