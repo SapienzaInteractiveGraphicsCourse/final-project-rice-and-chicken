@@ -4,7 +4,11 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Dimension Shift: Sci-Fi Arena</title>
-    
+
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700;900&family=Press+Start+2P&display=swap" rel="stylesheet">
+
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -12,7 +16,26 @@
     <div id="ui-overlay">
         <h2>SYSTEM: ACTIVE</h2>
         <p>MOVE: W, A, S, D / Arrows</p>
+        <p>WEAPON: [1] Primary &nbsp; [2] Sidearm</p>
+        <p>CLASS: [C] Assault &lt;-&gt; Sniper</p>
         <p>SHIFT DIMENSION: [TAB] (Coming soon)</p>
+    </div>
+
+    <div id="main-menu">
+        <h1 class="game-title">
+            <span class="title-scifi">DIMENSION</span><span class="title-pixel">SHIFT</span>
+        </h1>
+
+        <div class="class-select">
+            <button class="class-arrow" id="class-prev" aria-label="Previous class">&#10094;</button>
+            <div class="class-box">
+                <div class="class-swatch" id="class-swatch"></div>
+                <div class="class-name" id="class-name">ASSAULT</div>
+            </div>
+            <button class="class-arrow" id="class-next" aria-label="Next class">&#10095;</button>
+        </div>
+
+        <button id="play-button" class="play-button">PLAY</button>
     </div>
 
     <script type="importmap">

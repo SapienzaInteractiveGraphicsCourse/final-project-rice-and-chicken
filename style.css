@@ -5,11 +5,190 @@ body {
 }
 
 #ui-overlay {
+    display: none; /* shown once the player presses PLAY */
     position: absolute;
     top: 20px;
     left: 20px;
     color: #00ffcc;
     font-family: 'Courier New', Courier, monospace;
-    pointer-events: none; 
+    pointer-events: none;
     text-shadow: 0 0 5px #00ffcc;
+}
+
+/* ============================================================
+   MAIN MENU
+   Sits on top of the (already-rendering) three.js canvas -- the
+   canvas shows through everywhere except the title / buttons, so
+   the currently-selected player class is visible turning slowly
+   behind the UI. See updateMenuPreview() in main.js.
+   ============================================================ */
+#main-menu {
+    position: fixed;
+    inset: 0;
+    z-index: 10;
+    font-family: 'Orbitron', 'Courier New', monospace;
+    pointer-events: none; /* only specific children opt back in */
+}
+
+#main-menu.hidden {
+    display: none;
+}
+
+#main-menu::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background:
+        radial-gradient(ellipse at center, rgba(0, 0, 0, 0) 40%, rgba(0, 0, 0, 0.8) 100%),
+        repeating-linear-gradient(0deg, rgba(0, 255, 204, 0.045) 0px, rgba(0, 255, 204, 0.045) 1px, transparent 1px, transparent 40px),
+        repeating-linear-gradient(90deg, rgba(0, 255, 204, 0.045) 0px, rgba(0, 255, 204, 0.045) 1px, transparent 1px, transparent 40px);
+}
+
+.game-title {
+    position: absolute;
+    top: 6vh;
+    left: 0;
+    right: 0;
+    margin: 0;
+    text-align: center;
+    line-height: 1;
+    user-select: none;
+}
+
+.game-title span {
+    display: block;
+}
+
+.title-scifi {
+    font-family: 'Orbitron', sans-serif;
+    font-weight: 900;
+    font-size: clamp(2.2rem, 6vw, 4.5rem);
+    letter-spacing: 0.25em;
+    color: #00ffcc;
+    text-shadow:
+        0 0 10px rgba(0, 255, 204, 0.7),
+        0 0 25px rgba(0, 255, 204, 0.4),
+        0 0 60px rgba(0, 255, 204, 0.25);
+}
+
+.title-pixel {
+    font-family: 'Press Start 2P', monospace;
+    font-size: clamp(1.1rem, 3.2vw, 2.2rem);
+    margin-top: 0.7em;
+    letter-spacing: 0.15em;
+    background: linear-gradient(90deg, #ff3b3b, #ffb703, #ffe600, #39ff14, #00d9ff, #b967ff, #ff2ec4, #ff3b3b);
+    background-size: 200% auto;
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+    animation: pixelShift 6s linear infinite;
+    text-shadow: 0 0 2px rgba(255, 255, 255, 0.15);
+}
+
+@keyframes pixelShift {
+    0% { background-position: 0% center; }
+    100% { background-position: 200% center; }
+}
+
+/* Class selector, bottom-right */
+.class-select {
+    position: fixed;
+    right: 40px;
+    bottom: 40px;
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    pointer-events: auto;
+}
+
+.class-arrow {
+    width: 42px;
+    height: 42px;
+    flex-shrink: 0;
+    border-radius: 6px;
+    border: 2px solid #00ffcc;
+    background: rgba(0, 20, 20, 0.55);
+    color: #00ffcc;
+    font-size: 1.2rem;
+    line-height: 1;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 0 10px rgba(0, 255, 204, 0.35);
+    transition: background 0.15s, transform 0.15s, box-shadow 0.15s;
+}
+
+.class-arrow:hover {
+    background: rgba(0, 255, 204, 0.2);
+    transform: scale(1.08);
+    box-shadow: 0 0 18px rgba(0, 255, 204, 0.65);
+}
+
+.class-arrow:active {
+    transform: scale(0.95);
+}
+
+.class-box {
+    width: 120px;
+    height: 120px;
+    border: 2px solid #00ffcc;
+    background: rgba(0, 15, 15, 0.6);
+    box-shadow: 0 0 18px rgba(0, 255, 204, 0.35), inset 0 0 20px rgba(0, 255, 204, 0.08);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    clip-path: polygon(12px 0, 100% 0, 100% calc(100% - 12px), calc(100% - 12px) 100%, 0 100%, 0 12px);
+}
+
+.class-swatch {
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    border: 2px solid rgba(255, 255, 255, 0.6);
+    transition: background-color 0.15s, box-shadow 0.15s;
+}
+
+.class-name {
+    font-family: 'Orbitron', sans-serif;
+    font-weight: 700;
+    font-size: 0.8rem;
+    letter-spacing: 0.08em;
+    color: #00ffcc;
+    text-shadow: 0 0 6px rgba(0, 255, 204, 0.6);
+}
+
+/* Play button -- horizontally centered; kept low so it doesn't sit
+   on top of the player model, which the menu camera frames in the
+   vertical center of the screen (see updateMenuPreview() in main.js) */
+.play-button {
+    position: fixed;
+    left: 50%;
+    bottom: 9vh;
+    transform: translateX(-50%);
+    pointer-events: auto;
+    padding: 18px 64px;
+    font-family: 'Orbitron', sans-serif;
+    font-weight: 900;
+    font-size: 1.6rem;
+    letter-spacing: 0.3em;
+    color: #04140f;
+    background: linear-gradient(180deg, #00ffcc, #00b894);
+    border: none;
+    cursor: pointer;
+    clip-path: polygon(16px 0, 100% 0, 100% calc(100% - 16px), calc(100% - 16px) 100%, 0 100%, 0 16px);
+    box-shadow: 0 0 20px rgba(0, 255, 204, 0.65), 0 0 60px rgba(0, 255, 204, 0.3);
+    transition: transform 0.15s, box-shadow 0.15s;
+}
+
+.play-button:hover {
+    transform: translateX(-50%) scale(1.06);
+    box-shadow: 0 0 30px rgba(0, 255, 204, 0.85), 0 0 90px rgba(0, 255, 204, 0.5);
+}
+
+.play-button:active {
+    transform: translateX(-50%) scale(0.97);
 }

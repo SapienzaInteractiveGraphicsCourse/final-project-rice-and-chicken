@@ -1,4 +1,6 @@
 import * as THREE from 'three';
+import { Assault } from './playerClasses/Assault.js';
+import { Sniper } from './playerClasses/Sniper.js';
 
 // ============================================================
 // GLOBAL VARIABLES
@@ -22,6 +24,12 @@ const keys = { w: false, a: false, s: false, d: false };
 // True while the left mouse button is held down -> continuous fire.
 let isMouseDown = false;
 
+// False while the main menu is showing: the player model still renders
+// (slowly turning, for the class-preview) but updateGame()/updateBullets()
+// don't run, so movement, shooting and pointer-lock stay inactive until
+// PLAY is pressed (see initMenu() and animate()).
+let gameStarted = false;
+
 // Every bullet currently flying through the arena. Each entry is a
 // { mesh, velocity, age } object. We need our own array because
 // Three.js doesn't track "your game objects" for you -- the scene
@@ -29,9 +37,16 @@ let isMouseDown = false;
 let bullets = [];
 
 let shotCooldown = 0;          // counts down to 0, then the player can fire again
-const fireRate = 0.2;          // seconds between shots (lower = faster fire rate)
-const bulletSpeed = 40;        // units per second
-const bulletLifetime = 1.5;    // seconds before a bullet is removed, even if it hit nothing
+
+// --- Player classes ---
+// Every loadout the player can play as (see playerClasses/PlayerClass.js
+// and its subclasses). Each one owns its own weapons array and its own
+// body colors -- main.js just asks the CURRENT class for materials and
+// for its weapons, it doesn't know or care which concrete class
+// (Assault, Sniper, ...) that is.
+const playerClasses = [new Assault(), new Sniper()];
+let currentClassIndex = 0;
+let currentWeaponIndex = 0; // index into playerClasses[currentClassIndex].weapons
 
 // --- Jump physics ---
 // Simple vertical motion: velocityY changes over time due to gravity,
@@ -64,90 +79,6 @@ let walkTime = 0;
 
 
 // ============================================================
-// GUN MODEL
-// A small hierarchy of its own, built from simple primitives laid
-// out along the local Z axis (front = +Z, same "forward" convention
-// as the rest of the player).
-
-
-// All parts are added to one Group so the whole gun can be positioned
-// and carried by the hand as a single unit (see createPlayer()).
-// ============================================================
-function createGun() {
-    const gunGroup = new THREE.Group();
-
-    const metalMat = new THREE.MeshStandardMaterial({ color: 0x1a1a22, roughness: 0.35, metalness: 0.75 });
-    const metalMatLight = new THREE.MeshStandardMaterial({ color: 0x33333d, roughness: 0.4, metalness: 0.6 }); // slightly lighter, for the magazine
-    // Emissive strip = glows on its own regardless of scene lighting.
-    // Color matches the player's teal accent, ties the weapon visually
-    // to the character and hints at "sci-fi energy" tech.
-    const glowMat = new THREE.MeshStandardMaterial({ color: 0x003322, emissive: 0x00ffcc, emissiveIntensity: 2 });
-
-    // --- Stock (rear, braces against the shoulder) ---
-    const stock = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.11, 0.22), metalMat);
-    stock.position.set(0, -0.01, -0.19); // slightly lower than the receiver, angled look without actual rotation
-    stock.castShadow = true;
-    gunGroup.add(stock);
-
-    // --- Receiver (main body, houses the mechanism) ---
-    const receiver = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.14, 0.35), metalMat);
-    receiver.position.set(0, 0, 0.1);
-    receiver.castShadow = true;
-    gunGroup.add(receiver);
-
-    // --- Handguard (covers the rear part of the barrel) ---
-    const handguard = new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.09, 0.25), metalMatLight);
-    handguard.position.set(0, -0.01, 0.4);
-    handguard.castShadow = true;
-    gunGroup.add(handguard);
-
-    // --- Barrel (thin cylinder, extends past the handguard) ---
-    const barrelGeo = new THREE.CylinderGeometry(0.02, 0.02, 0.35, 8);
-    const barrel = new THREE.Mesh(barrelGeo, metalMat);
-    barrel.rotation.x = Math.PI / 2; // cylinders default to standing on Y -- rotate 90° to point along Z (forward)
-    barrel.position.set(0, 0.01, 0.68);
-    barrel.castShadow = true;
-    gunGroup.add(barrel);
-
-    // --- Muzzle marker ---
-    // An empty Object3D (no geometry, never rendered) placed exactly at
-    // the barrel's tip: barrel center z=0.68, half-length 0.175 -> tip
-    // at z=0.855. This is the point bullets should actually spawn from,
-    // as opposed to gunGroup's own origin (which sits back near the grip).
-    const muzzle = new THREE.Object3D();
-    muzzle.position.set(0, 0.01, 0.855);
-    gunGroup.add(muzzle);
-    gunGroup.userData.muzzle = muzzle; // so createPlayer() can grab it below
-
-    // --- Magazine ---
-    // The AK-47's signature trait: a magazine that curves forward and
-    // down instead of hanging straight. We fake the curve cheaply with
-    // a single rotated box rather than modeling an actual curved mesh --
-    // reads correctly from a normal play-camera distance.
-    const magazine = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.28, 0.09), metalMatLight);
-    magazine.position.set(0, -0.19, 0.08);
-    magazine.rotation.x = 0.35; // tilts the bottom of the magazine forward
-    magazine.castShadow = true;
-    gunGroup.add(magazine);
-
-    // --- Pistol grip ---
-    const grip = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.16, 0.08), metalMat);
-    grip.position.set(0, -0.13, -0.05);
-    grip.rotation.x = -0.2; // angled back slightly, like a real grip
-    grip.castShadow = true;
-    gunGroup.add(grip);
-
-    // --- Sci-fi energy strip ---
-    // Thin glowing accent along the top of the receiver -- the "modified"
-    // sci-fi touch that separates this from a plain realistic AK-47.
-    const energyStrip = new THREE.Mesh(new THREE.BoxGeometry(0.02, 0.02, 0.3), glowMat);
-    energyStrip.position.set(0, 0.075, 0.1); // sits right on top of the receiver
-    gunGroup.add(energyStrip);
-
-    return gunGroup;
-}
-
-// ============================================================
 // PLAYER MODEL
 // Instead of a single mesh, the player is built as a small
 // hierarchy (a "scene graph" within the scene graph):
@@ -167,23 +98,28 @@ function createGun() {
 // everything attached to it follows automatically — we don't have
 // to manually update the head/arms position every frame.
 // ============================================================
-function createPlayer() {
+function createPlayer(playerClass) {
     const playerGroup = new THREE.Group(); // an empty container, just holds child objects
+
+    // Body colors/materials come from the active PlayerClass (see
+    // playerClasses/PlayerClass.js) -- this is the "texture" that
+    // varies between Assault, Sniper, etc. The geometry/hierarchy
+    // below stays identical across classes; only these materials
+    // (and the weapon attached further down) change.
+    const materials = playerClass.createBodyMaterials();
 
     // --- Torso ---
     // Height stays such that the bottom still sits at y=0.6, so the
     // legs below don't need to change length.
     const torsoGeo = new THREE.BoxGeometry(0.7, 0.9, 0.45); // width, height, depth
-    const torsoMat = new THREE.MeshStandardMaterial({ color: 0x00ffcc, roughness: 0.2 });
-    const torso = new THREE.Mesh(torsoGeo, torsoMat);
+    const torso = new THREE.Mesh(torsoGeo, materials.torso);
     torso.position.y = 1.05; // half-height (0.45) above the legs' top (0.6) -> 1.05
     torso.castShadow = true;
     playerGroup.add(torso);
 
     // --- Head ---
     const headGeo = new THREE.SphereGeometry(0.28, 16, 16);
-    const headMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.3 });
-    const head = new THREE.Mesh(headGeo, headMat);
+    const head = new THREE.Mesh(headGeo, materials.head);
     head.position.y = 0.62; // torso half-height (0.45) + most of the head radius, small overlap = no visible gap/neck seam
     head.castShadow = true;
     torso.add(head); // head is a CHILD of torso, not of playerGroup
@@ -195,34 +131,33 @@ function createPlayer() {
     // Positioned on the -Z side because that's the model's local "back"
     // (rotation.y = 0 means facing +Z, see updateGame's atan2 logic).
     const backpackGeo = new THREE.BoxGeometry(0.45, 0.5, 0.2);
-    const backpackMat = new THREE.MeshStandardMaterial({ color: 0x2a2a35, roughness: 0.4, metalness: 0.6 }); 
-    const backpack = new THREE.Mesh(backpackGeo, backpackMat);
+    const backpack = new THREE.Mesh(backpackGeo, materials.backpack);
     backpack.position.set(0, 0.05, -(0.225 + 0.1)); // just behind the torso's back face, no z-fighting overlap
     backpack.castShadow = true;
     torso.add(backpack);
 
     // --- Arms ---
     const armGeo = new THREE.BoxGeometry(0.18, 0.7, 0.18);
-    const armMat = new THREE.MeshStandardMaterial({ color: 0x00ffcc, roughness: 0.2 });
 
-    const leftArm = new THREE.Mesh(armGeo, armMat);
+    const leftArm = new THREE.Mesh(armGeo, materials.arm);
     leftArm.position.set(-0.44, 0.15, 0); // relative to torso: left side, near shoulder height
     leftArm.castShadow = true;
     torso.add(leftArm);
 
-    const rightArm = new THREE.Mesh(armGeo, armMat);
+    const rightArm = new THREE.Mesh(armGeo, materials.arm);
     rightArm.position.set(0.44, 0.15, 0); // mirrored on the right side
     rightArm.castShadow = true;
     torso.add(rightArm);
 
     // --- Gun ---
-    // Built by createGun() as its own small Group of parts, then attached
-    // as a child of the RIGHT ARM (not the torso), so it's carried by the
-    // hand: it follows both the torso's rotation AND the arm's own
-    // walk-cycle swing. Position is relative to the arm's local origin.
-    // The arm is a vertical box (height 0.7) hanging down, so "the hand"
-    // is roughly its bottom end -> y = -0.35 (half the arm's height).
-    const gun = createGun();
+    // Built by the class's starting weapon (index 0 of playerClass.weapons)
+    // as its own small Group of parts, then attached as a child of the
+    // RIGHT ARM (not the torso), so it's carried by the hand: it follows
+    // both the torso's rotation AND the arm's own walk-cycle swing.
+    // Position is relative to the arm's local origin. The arm is a
+    // vertical box (height 0.7) hanging down, so "the hand" is roughly
+    // its bottom end -> y = -0.35 (half the arm's height).
+    const gun = playerClass.weapons[currentWeaponIndex].createModel();
     gun.position.set(0, -0.35, 0.25); // at the hand, extending forward (+Z = local "front")
     rightArm.add(gun);
 
@@ -231,14 +166,13 @@ function createPlayer() {
     // sits with its bottom at y=0.6, so the legs fill the gap from
     // the ground (y=0) up to that point -> height 0.6, centered at y=0.3.
     const legGeo = new THREE.BoxGeometry(0.25, 0.6, 0.25);
-    const legMat = new THREE.MeshStandardMaterial({ color: 0x009980, roughness: 0.2 }); // slightly darker than torso, for contrast
 
-    const leftLeg = new THREE.Mesh(legGeo, legMat);
+    const leftLeg = new THREE.Mesh(legGeo, materials.leg);
     leftLeg.position.set(-0.16, 0.3, 0);
     leftLeg.castShadow = true;
     playerGroup.add(leftLeg);
 
-    const rightLeg = new THREE.Mesh(legGeo, legMat);
+    const rightLeg = new THREE.Mesh(legGeo, materials.leg);
     rightLeg.position.set(0.16, 0.3, 0);
     rightLeg.castShadow = true;
     playerGroup.add(rightLeg);
@@ -253,8 +187,110 @@ function createPlayer() {
     playerGroup.userData.head = head;
     playerGroup.userData.gun = gun;
     playerGroup.userData.muzzle = gun.userData.muzzle; // barrel tip, used as the bullet spawn point
+    playerGroup.userData.playerClass = playerClass; // so switchWeapon() knows this class's loadout
 
     return playerGroup;
+}
+
+// ============================================================
+// WEAPON SWITCHING
+// Swaps the gun model carried by the right arm for weapon `index`
+// in the CURRENT player class's loadout. Because every weapon
+// exposes the same interface (createModel(), userData.muzzle,
+// fireRate, shoot()), this function doesn't need to know which
+// concrete weapon it's switching to or from.
+// ============================================================
+function switchWeapon(index) {
+    const classWeapons = player.userData.playerClass.weapons;
+    if (index === currentWeaponIndex || index < 0 || index >= classWeapons.length) return;
+    currentWeaponIndex = index;
+
+    const rightArm = player.userData.rightArm;
+    rightArm.remove(player.userData.gun);
+
+    const gun = classWeapons[currentWeaponIndex].createModel();
+    gun.position.set(0, -0.35, 0.25); // same anchor point used in createPlayer()
+    rightArm.add(gun);
+
+    player.userData.gun = gun;
+    player.userData.muzzle = gun.userData.muzzle;
+
+    shotCooldown = classWeapons[currentWeaponIndex].fireRate; // no instant shot right after switching
+}
+
+// ============================================================
+// PLAYER CLASS SWITCHING
+// Rebuilds the whole player model from scratch using a different
+// PlayerClass (different body colors AND a different weapon
+// loadout), then restores position/facing so switching mid-arena
+// doesn't teleport or disorient the player.
+// ============================================================
+function switchPlayerClass(index) {
+    if (index === currentClassIndex || index < 0 || index >= playerClasses.length) return;
+    currentClassIndex = index;
+    currentWeaponIndex = 0; // start back on the new class's primary weapon
+
+    const { x, y, z } = player.position;
+    const facing = player.rotation.y;
+
+    scene.remove(player);
+    player = createPlayer(playerClasses[currentClassIndex]);
+    player.position.set(x, y, z);
+    player.rotation.y = facing;
+    scene.add(player);
+
+    shotCooldown = playerClasses[currentClassIndex].weapons[currentWeaponIndex].fireRate;
+    refreshClassSelectorUI(); // keep the menu's class box in sync, whether triggered by [C] or the menu arrows
+}
+
+// ============================================================
+// MAIN MENU
+// The menu overlay (index.html #main-menu) sits on top of the
+// three.js canvas, which keeps rendering underneath it -- the player
+// model is visible through the transparent parts of the overlay,
+// turning slowly (see updateMenuPreview()) so its class-specific
+// colors act as a live preview. The class arrows just call the same
+// switchPlayerClass() gameplay uses; PLAY flips `gameStarted` so
+// animate() switches from the preview camera to real gameplay.
+// ============================================================
+const menuEl = document.getElementById('main-menu');
+const classNameEl = document.getElementById('class-name');
+const classSwatchEl = document.getElementById('class-swatch');
+const uiOverlayEl = document.getElementById('ui-overlay');
+
+function refreshClassSelectorUI() {
+    const cls = playerClasses[currentClassIndex];
+    classNameEl.textContent = cls.name.toUpperCase();
+    const hex = '#' + cls.bodyColor.toString(16).padStart(6, '0');
+    classSwatchEl.style.backgroundColor = hex;
+    classSwatchEl.style.boxShadow = `0 0 12px ${hex}`;
+}
+
+function initMenu() {
+    document.getElementById('class-prev').addEventListener('click', () => {
+        switchPlayerClass((currentClassIndex - 1 + playerClasses.length) % playerClasses.length);
+    });
+    document.getElementById('class-next').addEventListener('click', () => {
+        switchPlayerClass((currentClassIndex + 1) % playerClasses.length);
+    });
+
+    document.getElementById('play-button').addEventListener('click', () => {
+        gameStarted = true;
+        menuEl.classList.add('hidden');
+        uiOverlayEl.style.display = 'block';
+        renderer.domElement.requestPointerLock(); // the click is a user gesture, so this is allowed here
+    });
+
+    refreshClassSelectorUI();
+}
+
+// Runs every frame while the menu is showing: turns the player in
+// place and frames it with a fixed "character select" camera, instead
+// of the mouse-driven orbit cam used once gameplay starts.
+function updateMenuPreview(deltaTime) {
+    player.rotation.y += deltaTime * 0.6;
+    camera.position.set(0, 1.3, 4.5);
+    camera.lookAt(0, 1.0, 0);
 }
 
 
@@ -307,7 +343,7 @@ function init() {
     scene.add(ground);
 
     // --- Player ---
-    player = createPlayer();
+    player = createPlayer(playerClasses[currentClassIndex]);
     scene.add(player);
 
     updateCamera(); // position the camera correctly before the first frame renders
@@ -352,6 +388,9 @@ function handleKeyboard(event, isKeyDown) {
     if (key === 'a' || key === 'arrowleft') keys.a = isKeyDown;
     if (key === 's' || key === 'arrowdown') keys.s = isKeyDown;
     if (key === 'd' || key === 'arrowright') keys.d = isKeyDown;
+    if (key === '1' && isKeyDown) switchWeapon(0); // primary (Rifle / SniperRifle, depending on class)
+    if (key === '2' && isKeyDown) switchWeapon(1); // sidearm (Pistol)
+    if (key === 'c' && isKeyDown) switchPlayerClass((currentClassIndex + 1) % playerClasses.length); // cycle Assault <-> Sniper
     if (key === ' ') {
         event.preventDefault(); // stop the browser from scrolling the page on spacebar
         // event.repeat is true when the browser auto-fires keydown while
@@ -484,7 +523,7 @@ function updateGame(deltaTime) {
     shotCooldown -= deltaTime;
     if (isMouseDown && shotCooldown <= 0) {
         shootBullet();
-        shotCooldown = fireRate;
+        shotCooldown = player.userData.playerClass.weapons[currentWeaponIndex].fireRate;
     }
 
     updateCamera(); // keep camera locked to the player every frame
@@ -557,55 +596,30 @@ function animateWalk(isMoving, deltaTime, walkDirSign = 1) {
 
 // ============================================================
 // SHOOTING
-// Spawns a small glowing sphere at the gun's muzzle, moving in
-// the direction the camera is aiming (cameraYaw).
+// Delegates to the current weapon's own shoot() (see Weapon.js):
+// it builds the bullet mesh, spawns it at the gun's muzzle, and
+// aims it along the direction the camera is aiming (cameraYaw).
+// player.rotation.y drives the LEGS (movement direction), while
+// the torso/gun stay aimed at cameraYaw (see updateGame) -- so
+// shooting always follows where you're actually aiming, not where
+// you're walking.
 // ============================================================
 function shootBullet() {
-    const bulletGeo = new THREE.SphereGeometry(0.08, 8, 8);
-    // emissive = the material "glows" with its own color, independent
-    // of scene lighting -- makes it read clearly as a laser/energy shot.
-    const bulletMat = new THREE.MeshStandardMaterial({
-        color: 0xffaa00,
-        emissive: 0xff6600,
-        emissiveIntensity: 2
-    });
-    const bullet = new THREE.Mesh(bulletGeo, bulletMat);
-
-    // getWorldPosition() converts the muzzle's LOCAL position (relative to
-    // the barrel/gun/hand/arm/torso chain) into a single world-space
-    // (x, y, z) -- exactly the point at the tip of the barrel, where we
-    // want the bullet to actually appear.
-    const spawnPos = new THREE.Vector3();
-    player.userData.muzzle.getWorldPosition(spawnPos);
-    bullet.position.copy(spawnPos);
-
-    // Forward direction from the AIM angle --
-    // player.rotation.y drives the LEGS (movement direction), while
-    // the torso/gun stay aimed at cameraYaw (see updateGame). Shooting
-    // should always follow where you're actually aiming.
-    const angle = cameraYaw;
-    const direction = new THREE.Vector3(Math.sin(angle), 0, Math.cos(angle));
-
-    bullet.castShadow = true;
-    scene.add(bullet);
-
-    bullets.push({
-        mesh: bullet,
-        velocity: direction.multiplyScalar(bulletSpeed),
-        age: 0
-    });
+    const weapon = player.userData.playerClass.weapons[currentWeaponIndex];
+    const bulletEntry = weapon.shoot(scene, player.userData.muzzle, cameraYaw);
+    bullets.push(bulletEntry);
 }
 
 // Moves every active bullet forward and removes the ones that have
-// existed longer than bulletLifetime, so the array (and the scene)
-// don't grow forever.
+// existed longer than their own weapon's bulletLifetime, so the
+// array (and the scene) don't grow forever.
 function updateBullets(deltaTime) {
     for (let i = bullets.length - 1; i >= 0; i--) {
         const b = bullets[i];
         b.mesh.position.addScaledVector(b.velocity, deltaTime);
         b.age += deltaTime;
 
-        if (b.age > bulletLifetime) {
+        if (b.age > b.lifetime) {
             scene.remove(b.mesh); // stop rendering it
             bullets.splice(i, 1); // remove it from our tracking array
         }
@@ -650,12 +664,17 @@ function animate() {
 
     const deltaTime = clock.getDelta(); // seconds elapsed since the last frame
 
-    updateGame(deltaTime); // move player, update camera
-    updateBullets(deltaTime); // move active bullets, remove expired ones
+    if (gameStarted) {
+        updateGame(deltaTime); // move player, update camera
+        updateBullets(deltaTime); // move active bullets, remove expired ones
+    } else {
+        updateMenuPreview(deltaTime); // turntable preview behind the main menu
+    }
 
     renderer.render(scene, camera); // actually draw everything to the canvas
 }
 
-// Fire it up: build the scene once, then start the loop
+// Fire it up: build the scene once, wire up the menu, then start the loop
 init();
+initMenu();
 animate();
