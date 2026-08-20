@@ -1,7 +1,14 @@
 body {
     margin: 0;
-    overflow: hidden; 
+    overflow: hidden;
     background-color: #000;
+    /* Small sci-fi reticle cursor (inline SVG, teal to match the rest of
+       the UI) instead of the default OS arrow. Only actually visible in
+       the main menu -- once gameplay starts, Pointer Lock hides the
+       system cursor entirely regardless of this CSS. Hotspot (16 16) is
+       the SVG's center, so the reticle's middle -- not its corner -- is
+       what actually points at whatever you click. */
+    cursor: url("data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIzMiIgaGVpZ2h0PSIzMiIgdmlld0JveD0iMCAwIDMyIDMyIj4KPGNpcmNsZSBjeD0iMTYiIGN5PSIxNiIgcj0iOSIgZmlsbD0icmdiYSgwLDI1NSwyMDQsMC4wOCkiIHN0cm9rZT0iIzAwZmZjYyIgc3Ryb2tlLXdpZHRoPSIxLjYiLz4KPGNpcmNsZSBjeD0iMTYiIGN5PSIxNiIgcj0iMS42IiBmaWxsPSIjMDBmZmNjIi8+CjxsaW5lIHgxPSIxNiIgeTE9IjEuNSIgeDI9IjE2IiB5Mj0iNi41IiBzdHJva2U9IiMwMGZmY2MiIHN0cm9rZS13aWR0aD0iMS42Ii8+CjxsaW5lIHgxPSIxNiIgeTE9IjI1LjUiIHgyPSIxNiIgeTI9IjMwLjUiIHN0cm9rZT0iIzAwZmZjYyIgc3Ryb2tlLXdpZHRoPSIxLjYiLz4KPGxpbmUgeDE9IjEuNSIgeTE9IjE2IiB4Mj0iNi41IiB5Mj0iMTYiIHN0cm9rZT0iIzAwZmZjYyIgc3Ryb2tlLXdpZHRoPSIxLjYiLz4KPGxpbmUgeDE9IjI1LjUiIHkxPSIxNiIgeDI9IjMwLjUiIHkyPSIxNiIgc3Ryb2tlPSIjMDBmZmNjIiBzdHJva2Utd2lkdGg9IjEuNiIvPgo8L3N2Zz4K") 16 16, auto;
 }
 
 #ui-overlay {

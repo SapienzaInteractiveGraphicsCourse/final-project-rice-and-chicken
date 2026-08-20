@@ -66,6 +66,14 @@ const mouseSensitivity = 0.0025;
 const minPitch = 0.25; // radians (~14°) -- fairly level, avoids an almost-flat view
 const maxPitch = 0.85; // radians (~49°) -- a comfortable "over the shoulder" max, avoids a jarring near-top-down swing
 
+// --- Menu character-preview rotation ---
+// True while the left mouse button is held down over the menu (see the
+// mousedown/mouseup listeners in init()). Click-and-drag: the character only spins while menuDragging is true, by
+// however far the mouse actually moved that frame (see the mousemove
+// listener's "not locked" branch below) -- release the button and it
+// just stays put wherever you left it.
+let menuDragging = false;
+
 // THREE.Clock lets us measure how much real time passed between frames.
 // This is called "Delta Time" and is used below to make movement
 // speed independent of frame rate (so the game runs at the same
@@ -118,11 +126,20 @@ function createPlayer(playerClass) {
     playerGroup.add(torso);
 
     // --- Head ---
-    const headGeo = new THREE.SphereGeometry(0.28, 16, 16);
+    const headGeo = new THREE.BoxGeometry(0.46, 0.42, 0.42);
     const head = new THREE.Mesh(headGeo, materials.head);
-    head.position.y = 0.62; // torso half-height (0.45) + most of the head radius, small overlap = no visible gap/neck seam
+    head.position.y = 0.62; // torso half-height (0.45) + half the head's height, small overlap = no visible gap/neck seam
     head.castShadow = true;
     torso.add(head); // head is a CHILD of torso, not of playerGroup
+
+    // --- Visor ---
+    // Thin glowing strip across the upper-front of the head -- Child of
+    // head, so it stays glued to the face no matter how the head/torso
+    // rotates.
+    const visorGeo = new THREE.BoxGeometry(0.34, 0.09, 0.06);
+    const visor = new THREE.Mesh(visorGeo, materials.visor);
+    visor.position.set(0, 0.03, 0.21 + 0.02); // just off the head's front face (half-depth 0.21)
+    head.add(visor);
 
     // --- Backpack ---
     // Small sci-fi detail on the back. Child of the torso, so it
@@ -136,6 +153,15 @@ function createPlayer(playerClass) {
     backpack.castShadow = true;
     torso.add(backpack);
 
+    // --- Chest-core accent ---
+    // Small glow panel on the front, same emissive "tech" material as the
+    // visor -- gives the eye a focal point and reinforces the sci-fi read
+    // instead of a plain armor panel.
+    const chestCoreGeo = new THREE.BoxGeometry(0.28, 0.32, 0.05);
+    const chestCore = new THREE.Mesh(chestCoreGeo, materials.visor);
+    chestCore.position.set(0, 0.05, 0.225 + 0.03); // just off the torso's front face (half-depth 0.225)
+    torso.add(chestCore);
+
     // --- Arms ---
     const armGeo = new THREE.BoxGeometry(0.18, 0.7, 0.18);
 
@@ -148,6 +174,22 @@ function createPlayer(playerClass) {
     rightArm.position.set(0.44, 0.15, 0); // mirrored on the right side
     rightArm.castShadow = true;
     torso.add(rightArm);
+
+    // --- Pauldrons (shoulder armor) ---
+    // Caps the top of each arm for a more "armored" silhouette. Children
+    // of the TORSO (not the arm): a rigid shoulder plate that stays put
+    // rather than swinging through the walk-cycle arm rotation reads more
+    // like actual shoulder armor than a sleeve patch would.
+    const pauldronGeo = new THREE.BoxGeometry(0.28, 0.16, 0.28);
+    const leftPauldron = new THREE.Mesh(pauldronGeo, materials.trim);
+    leftPauldron.position.set(-0.44, 0.47, 0); // arm top is around local y=0.5 (0.15 origin + 0.35 half-height)
+    leftPauldron.castShadow = true;
+    torso.add(leftPauldron);
+
+    const rightPauldron = new THREE.Mesh(pauldronGeo, materials.trim);
+    rightPauldron.position.set(0.44, 0.47, 0);
+    rightPauldron.castShadow = true;
+    torso.add(rightPauldron);
 
     // --- Gun ---
     // Built by the class's starting weapon (index 0 of playerClass.weapons)
@@ -176,6 +218,21 @@ function createPlayer(playerClass) {
     rightLeg.position.set(0.16, 0.3, 0);
     rightLeg.castShadow = true;
     playerGroup.add(rightLeg);
+
+    // --- Boot guards ---
+    // Small trim accent at the bottom of each leg. Children of the LEG
+    // (not playerGroup), so they inherit the walk-cycle swing correctly
+    // and read as part of the boot rather than floating separately.
+    const bootGeo = new THREE.BoxGeometry(0.27, 0.14, 0.29);
+    const leftBoot = new THREE.Mesh(bootGeo, materials.trim);
+    leftBoot.position.set(0, -0.3 + 0.07, 0.02); // leg bottom is at local y=-0.3 (half-height); slight forward toe offset
+    leftBoot.castShadow = true;
+    leftLeg.add(leftBoot);
+
+    const rightBoot = new THREE.Mesh(bootGeo, materials.trim);
+    rightBoot.position.set(0, -0.3 + 0.07, 0.02);
+    rightBoot.castShadow = true;
+    rightLeg.add(rightBoot);
 
     // Save direct references to the animatable parts on the group itself
     // (in userData, a free-form object Three.js reserves for exactly this).
@@ -247,11 +304,12 @@ function switchPlayerClass(index) {
 // MAIN MENU
 // The menu overlay (index.html #main-menu) sits on top of the
 // three.js canvas, which keeps rendering underneath it -- the player
-// model is visible through the transparent parts of the overlay,
-// turning slowly (see updateMenuPreview()) so its class-specific
-// colors act as a live preview. The class arrows just call the same
-// switchPlayerClass() gameplay uses; PLAY flips `gameStarted` so
-// animate() switches from the preview camera to real gameplay.
+// model is visible through the transparent parts of the overlay, and
+// can be click-and-dragged to spin around so its class-specific colors
+// act as a live preview from any angle (see the mousemove listener in
+// init()). The class arrows just call the same switchPlayerClass()
+// gameplay uses; PLAY flips `gameStarted` so animate() switches from
+// the preview camera to real gameplay.
 // ============================================================
 const menuEl = document.getElementById('main-menu');
 const classNameEl = document.getElementById('class-name');
@@ -284,11 +342,19 @@ function initMenu() {
     refreshClassSelectorUI();
 }
 
-// Runs every frame while the menu is showing: turns the player in
-// place and frames it with a fixed "character select" camera, instead
-// of the mouse-driven orbit cam used once gameplay starts.
+// Runs every frame while the menu is showing: frames the player with a
+// fixed "character select" camera, instead of the mouse-driven orbit cam
+// used once gameplay starts, and gives it a slow idle spin (paused while
+// dragging -- see below -- since a click-drag should fully own the
+// rotation while it's happening, see the mousemove listener in init()).
 function updateMenuPreview(deltaTime) {
-    player.rotation.y += deltaTime * 0.6;
+    // Only auto-spins when nobody's actively dragging, and resumes from
+    // wherever the drag left the character (no snap back to a fixed
+    // angle) --
+    if (!menuDragging) {
+        player.rotation.y += deltaTime * 0.35; // ~17°/s, full turn every ~21s 
+    }
+
     camera.position.set(0, 1.3, 4.5);
     camera.lookAt(0, 1.0, 0);
 }
@@ -353,18 +419,38 @@ function init() {
     window.addEventListener('keydown', (e) => handleKeyboard(e, true));
     window.addEventListener('keyup', (e) => handleKeyboard(e, false));
     // Mouse input: left button held down = firing
-    window.addEventListener('mousedown', (e) => { if (e.button === 0) isMouseDown = true; });
-    window.addEventListener('mouseup', (e) => { if (e.button === 0) isMouseDown = false; });
+    window.addEventListener('mousedown', (e) => { if (e.button === 0) { isMouseDown = true; menuDragging = true; } });
+    window.addEventListener('mouseup', (e) => { if (e.button === 0) { isMouseDown = false; menuDragging = false; } });
 
     // Pointer Lock: clicking the canvas hides the cursor and switches
     // mouse movement to "relative" mode (movementX/movementY deltas
-    // instead of absolute screen position) 
+    // instead of absolute screen position). Gated on gameStarted: the
+    // menu sits on top of this same canvas, and most of its background
+    // isn't covered by a button (see #main-menu's pointer-events: none
+    // in style.css), so without this check a stray click on the menu
+    // background would lock the pointer and hide the cursor before the
+    // player even presses PLAY. Once gameplay is running this still lets
+    // a click re-acquire the lock if it was lost (e.g. after Alt-Tab).
     renderer.domElement.addEventListener('click', () => {
+        if (!gameStarted) return;
         renderer.domElement.requestPointerLock();
     });
 
     document.addEventListener('mousemove', (e) => {
-        if (document.pointerLockElement !== renderer.domElement) return;
+        if (document.pointerLockElement !== renderer.domElement) {
+            // Pointer isn't locked -- we're not in gameplay yet, so this is
+            // the mouse moving over the main menu. Only spin the preview
+            // while the button is actually held (click-and-drag, not
+            // passive follow); !gameStarted guards the edge case of the
+            // lock being lost mid-game while a drag happens to be active.
+            // e.movementX works outside Pointer Lock too (delta since the
+            // last mousemove), so no need to track a previous X ourselves.
+            // A full window-width drag = one full 360° turn.
+            if (menuDragging && !gameStarted) {
+                player.rotation.y += (e.movementX / window.innerWidth) * Math.PI * 2;
+            }
+            return;
+        }
 
         cameraYaw -= e.movementX * mouseSensitivity;
         cameraPitch += e.movementY * mouseSensitivity; 
@@ -668,7 +754,7 @@ function animate() {
         updateGame(deltaTime); // move player, update camera
         updateBullets(deltaTime); // move active bullets, remove expired ones
     } else {
-        updateMenuPreview(deltaTime); // turntable preview behind the main menu
+        updateMenuPreview(deltaTime); // idle turntable + camera framing behind the main menu
     }
 
     renderer.render(scene, camera); // actually draw everything to the canvas
