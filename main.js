@@ -1,6 +1,9 @@
 import * as THREE from 'three';
 import { Assault } from './playerClasses/Assault.js';
 import { Sniper } from './playerClasses/Sniper.js';
+import { Grunt } from './enemies/Grunt.js';
+import { Shooter } from './enemies/Shooter.js';
+import { createEnvironment } from './environment.js';
 
 // ============================================================
 // GLOBAL VARIABLES
@@ -14,21 +17,47 @@ let scene, camera, renderer;   // The 3 core Three.js pieces:
                                 //   camera   = the "eye" that looks at the scene
                                 //   renderer = draws the scene+camera onto the <canvas>
 
-let player, ground;            // References to the objects we'll move/interact with
+let player;                    // Reference to the object we'll move/interact with
+
+// Collision circles for the environment's beacons/crates (see
+// environment.js's createEnvironment()), filled in once during init().
+// Checked every frame in updateGame() via collidesWithObstacle() so the
+// player can't just walk through them. Kept as flat {x, z, radius}
+// objects rather than real THREE meshes/raycasting -- same lightweight
+// distance-check style already used for bullet/enemy collisions.
+let environmentObstacles = [];
+const playerCollisionRadius = 0.4; // rough half-width of the player's own model
 
 // Tracks which movement keys are currently held down.
 // Instead of reacting once per keypress, we check this every frame,
 // so movement is smooth and multiple keys can be held at once.
 const keys = { w: false, a: false, s: false, d: false };
 
-// True while the left mouse button is held down -> continuous fire.
+// True while the left mouse button is held down -> continuous fire, but
+// only for automatic weapons (see Weapon.js's `automatic` flag). Semi-
+// auto weapons also check shotFiredThisPress
+// below to cap themselves at one shot per press.
 let isMouseDown = false;
+
+// True once a semi-auto weapon has fired during the CURRENT mouse press;
+// reset back to false on mouseup. Ignored entirely for automatic weapons
+// (see the shooting block in updateGame()) -- only exists so a held-down
+// semi-auto weapon doesn't just fire again the instant its cooldown ends.
+let shotFiredThisPress = false;
 
 // False while the main menu is showing: the player model still renders
 // (slowly turning, for the class-preview) but updateGame()/updateBullets()
 // don't run, so movement, shooting and pointer-lock stay inactive until
 // PLAY is pressed (see initMenu() and animate()).
 let gameStarted = false;
+
+// True while the pause menu is showing mid-run (see the pointerlockchange
+// listener in init() and the resume-button handler in initMenu()).
+// Separate from gameStarted: gameStarted stays true the whole time so a
+// paused run still counts as "in progress" (e.g. [C] class-switching
+// stays locked out, see handleKeyboard()) -- only animate()'s per-frame
+// updates actually check gamePaused (see animate() below).
+let gamePaused = false;
 
 // Every bullet currently flying through the arena. Each entry is a
 // { mesh, velocity, age } object. We need our own array because
@@ -37,6 +66,36 @@ let gameStarted = false;
 let bullets = [];
 
 let shotCooldown = 0;          // counts down to 0, then the player can fire again
+
+// --- Aim indicator ---
+// A diegetic aiming aid: a thin beam + end marker showing exactly where
+// the NEXT shot will land -- see createAimIndicator()/updateAimIndicator()
+// below). Built once in init(), repositioned every frame in updateGame().
+let aimBeam, aimMarker;
+
+// --- Enemies ---
+// Every enemy currently alive in the arena (see enemies/Enemy.js and its
+// subclasses). Same idea as `bullets` below -- Three.js doesn't track
+// "this is an enemy" for us, so we keep our own array of Enemy instances
+// (each one already wraps its own THREE.Group -- see Enemy.mesh -- plus
+// its own stats and AI).
+let enemies = [];
+
+// Bullets fired BY enemies, kept in a SEPARATE array from the player's
+// own `bullets` below -- enemy fire only ever collides with the player,
+// player fire only ever collides with enemies (see updateEnemies() /
+// updateEnemyBullets()), so there's no risk of enemies damaging each
+// other by a stray bullet check.
+let enemyBullets = [];
+
+let enemySpawnTimer = 0;
+const enemySpawnInterval = 4;  // seconds between spawns
+const maxEnemies = 12;         // hard cap so a slow frame can't spiral into spawning forever more
+const arenaSpawnRadius = 22;   // just inside the movement boundary (limit = 24 in updateGame())
+
+// --- Player health ---
+const playerMaxHealth = 100;
+let playerHealth = playerMaxHealth;
 
 // --- Player classes ---
 // Every loadout the player can play as (see playerClasses/PlayerClass.js
@@ -273,6 +332,7 @@ function switchWeapon(index) {
     player.userData.muzzle = gun.userData.muzzle;
 
     shotCooldown = classWeapons[currentWeaponIndex].fireRate; // no instant shot right after switching
+    updateWeaponSelectorUI();
 }
 
 // ============================================================
@@ -298,6 +358,7 @@ function switchPlayerClass(index) {
 
     shotCooldown = playerClasses[currentClassIndex].weapons[currentWeaponIndex].fireRate;
     refreshClassSelectorUI(); // keep the menu's class box in sync, whether triggered by [C] or the menu arrows
+    updateWeaponSelectorUI(); // the new class brings its own weapon loadout, so refresh the HUD too
 }
 
 // ============================================================
@@ -315,6 +376,30 @@ const menuEl = document.getElementById('main-menu');
 const classNameEl = document.getElementById('class-name');
 const classSwatchEl = document.getElementById('class-swatch');
 const uiOverlayEl = document.getElementById('ui-overlay');
+const hudBottomRightEl = document.getElementById('hud-bottom-right');
+const healthFillEl = document.getElementById('health-bar-fill');
+const healthValueEl = document.getElementById('health-value');
+const gameOverEl = document.getElementById('game-over');
+const pauseMenuEl = document.getElementById('pause-menu');
+const weaponBoxEls = [document.getElementById('weapon-box-0'), document.getElementById('weapon-box-1')];
+const weaponIconEls = [document.getElementById('weapon-icon-0'), document.getElementById('weapon-icon-1')];
+const weaponNameEls = [document.getElementById('weapon-name-0'), document.getElementById('weapon-name-1')];
+
+// Fills in the bottom-right weapon-select HUD (icon, name, and which of
+// the two boxes is highlighted as "equipped") from the CURRENT player
+// class's weapons -- called whenever that could have changed: switching
+// weapon, switching class, and once on PLAY. Reads weapon.name/icon
+// (see weapons/Weapon.js and its subclasses) rather than hardcoding
+// per-weapon-type logic here.
+function updateWeaponSelectorUI() {
+    const classWeapons = player.userData.playerClass.weapons;
+    for (let i = 0; i < weaponBoxEls.length; i++) {
+        const weapon = classWeapons[i];
+        weaponIconEls[i].innerHTML = weapon.icon;
+        weaponNameEls[i].textContent = weapon.name;
+        weaponBoxEls[i].classList.toggle('active', i === currentWeaponIndex);
+    }
+}
 
 function refreshClassSelectorUI() {
     const cls = playerClasses[currentClassIndex];
@@ -333,10 +418,52 @@ function initMenu() {
     });
 
     document.getElementById('play-button').addEventListener('click', () => {
+        // Defensive resets (harmless on a fresh page load, matter if this
+        // ever runs again without a full reload): a clean run always
+        // starts at full health with no leftover enemies/bullets/timers.
+        playerHealth = playerMaxHealth;
+        enemies.forEach((e) => scene.remove(e.mesh));
+        enemies = [];
+        enemyBullets.forEach((b) => scene.remove(b.mesh));
+        enemyBullets = [];
+        enemySpawnTimer = 0;
+        updateHealthUI();
+        updateWeaponSelectorUI();
+        gamePaused = false;
+        pauseMenuEl.classList.add('hidden');
+        aimBeam.visible = true;
+        aimMarker.visible = true;
+
         gameStarted = true;
         menuEl.classList.add('hidden');
         uiOverlayEl.style.display = 'block';
+        hudBottomRightEl.style.display = 'flex';
         renderer.domElement.requestPointerLock(); // the click is a user gesture, so this is allowed here
+    });
+
+    // Game over's only way back in -- see triggerGameOver(). Reloading is
+    // simpler and far less error-prone than hand-resetting every piece of
+    // mutable state (player position/rotation, cooldowns, arrays...).
+    document.getElementById('restart-button').addEventListener('click', () => {
+        location.reload();
+    });
+
+    // Only way back in from the pause menu (see the pointerlockchange
+    // listener in init()) -- re-requesting the lock from this click is
+    // fine since a button click is itself a user gesture, same as PLAY.
+    document.getElementById('resume-button').addEventListener('click', () => {
+        gamePaused = false;
+        pauseMenuEl.classList.add('hidden');
+        renderer.domElement.requestPointerLock();
+    });
+
+    // Leaves the run entirely and returns to the initial screen. Same
+    // reasoning as restart-button: reloading lands back on #main-menu
+    // with every piece of state (health, enemies, cooldowns, position...)
+    // fresh, which is simpler and far less error-prone than resetting it
+    // all by hand.
+    document.getElementById('quit-button').addEventListener('click', () => {
+        location.reload();
     });
 
     refreshClassSelectorUI();
@@ -399,18 +526,20 @@ function init() {
     dirLight.shadow.mapSize.height = 2048;
     scene.add(dirLight);
 
-    // --- Ground Plane ---
-    const groundGeo = new THREE.PlaneGeometry(50, 50); // flat 50x50 square
-    const groundMat = new THREE.MeshStandardMaterial({ color: 0x111122, roughness: 0.8 });
-    ground = new THREE.Mesh(groundGeo, groundMat); // Mesh = geometry + material combined
-    ground.rotation.x = -Math.PI / 2; // planes are created facing up (Z axis) by default,
-                                       // this rotates it flat so it lies on the XZ plane (the "floor")
-    ground.receiveShadow = true; // this object can show shadows cast onto it
-    scene.add(ground);
+    // --- Environment ---
+    // Ground, perimeter walls, corner beacons, crate props, and fog --
+    // everything that turns the arena from a bare square into an actual
+    // place (see environment.js). The obstacles it hands back are the
+    // beacons'/crates' collision circles, checked against every frame in
+    // updateGame() (see collidesWithObstacle() below) so the player can't
+    // just walk through them.
+    environmentObstacles = createEnvironment(scene).obstacles;
 
     // --- Player ---
     player = createPlayer(playerClasses[currentClassIndex]);
     scene.add(player);
+
+    createAimIndicator();
 
     updateCamera(); // position the camera correctly before the first frame renders
 
@@ -420,7 +549,7 @@ function init() {
     window.addEventListener('keyup', (e) => handleKeyboard(e, false));
     // Mouse input: left button held down = firing
     window.addEventListener('mousedown', (e) => { if (e.button === 0) { isMouseDown = true; menuDragging = true; } });
-    window.addEventListener('mouseup', (e) => { if (e.button === 0) { isMouseDown = false; menuDragging = false; } });
+    window.addEventListener('mouseup', (e) => { if (e.button === 0) { isMouseDown = false; menuDragging = false; shotFiredThisPress = false; } });
 
     // Pointer Lock: clicking the canvas hides the cursor and switches
     // mouse movement to "relative" mode (movementX/movementY deltas
@@ -458,6 +587,22 @@ function init() {
         cameraPitch = Math.max(minPitch, Math.min(maxPitch, cameraPitch));
     });
 
+    // Pointer Lock exit -- fires both when WE call exitPointerLock()
+    // (triggerGameOver(), see below) and when the BROWSER itself force-
+    // releases the lock, which is exactly what happens when the player
+    // presses Escape mid-game (a built-in browser security behavior we
+    // can't intercept or preventDefault -- see the Pointer Lock spec).
+    // That second case is what turns Escape into a pause: gameStarted is
+    // still true at that point (triggerGameOver() always flips it to
+    // false BEFORE calling exitPointerLock(), so a real death never
+    // reaches this branch -- see triggerGameOver()).
+    document.addEventListener('pointerlockchange', () => {
+        if (document.pointerLockElement !== renderer.domElement && gameStarted) {
+            gamePaused = true;
+            pauseMenuEl.classList.remove('hidden');
+        }
+    });
+
     // Keep the render correct if the browser window is resized
     window.addEventListener('resize', onWindowResize);
 }
@@ -476,7 +621,9 @@ function handleKeyboard(event, isKeyDown) {
     if (key === 'd' || key === 'arrowright') keys.d = isKeyDown;
     if (key === '1' && isKeyDown) switchWeapon(0); // primary (Rifle / SniperRifle, depending on class)
     if (key === '2' && isKeyDown) switchWeapon(1); // sidearm (Pistol)
-    if (key === 'c' && isKeyDown) switchPlayerClass((currentClassIndex + 1) % playerClasses.length); // cycle Assault <-> Sniper
+    // Class switching is a pre-game loadout choice, not a mid-run mechanic
+    // -- gated to the menu just like the menu's own prev/next arrows
+    if (key === 'c' && isKeyDown && !gameStarted) switchPlayerClass((currentClassIndex + 1) % playerClasses.length);
     if (key === ' ') {
         event.preventDefault(); // stop the browser from scrolling the page on spacebar
         // event.repeat is true when the browser auto-fires keydown while
@@ -485,6 +632,21 @@ function handleKeyboard(event, isKeyDown) {
             jump();
         }
     }
+}
+
+// True if a point at (x, z) -- with the player's own collision radius
+// added on top -- would overlap any environment obstacle (beacons,
+// crates, see environment.js). Used by updateGame() to keep the player
+// from walking through them; same flat distance-check style as the
+// bullet/enemy hit tests elsewhere, just against static circles instead
+// of moving ones.
+function collidesWithObstacle(x, z) {
+    for (const obstacle of environmentObstacles) {
+        const dx = x - obstacle.x;
+        const dz = z - obstacle.z;
+        if (Math.hypot(dx, dz) < obstacle.radius + playerCollisionRadius) return true;
+    }
+    return false;
 }
 
 // ============================================================
@@ -527,9 +689,19 @@ function updateGame(deltaTime) {
     let nextX = player.position.x + moveX * currentSpeed;
     let nextZ = player.position.z + moveZ * currentSpeed;
 
-    // Only apply the movement if it stays inside the boundary
-    if (nextX > -limit && nextX < limit) player.position.x = nextX;
-    if (nextZ > -limit && nextZ < limit) player.position.z = nextZ;
+    // Only apply the movement if it stays inside the boundary AND
+    // doesn't walk the player into an obstacle (see collidesWithObstacle()
+    // above). Resolved as two SEPARATE axis checks rather than one
+    // combined (nextX, nextZ) check: that way, bumping into an obstacle
+    // along one axis only cancels movement along that axis, so moving
+    // diagonally into the corner of a crate slides you along its edge
+    // instead of just stopping dead.
+    if (nextX > -limit && nextX < limit && !collidesWithObstacle(nextX, player.position.z)) {
+        player.position.x = nextX;
+    }
+    if (nextZ > -limit && nextZ < limit && !collidesWithObstacle(player.position.x, nextZ)) {
+        player.position.z = nextZ;
+    }
 
     const isMoving = moveForward !== 0 || moveRight !== 0;
 
@@ -603,14 +775,22 @@ function updateGame(deltaTime) {
 
     // --- Shooting ---
     // shotCooldown counts down every frame; once it reaches 0 (and the
-    // left mouse button is held) we fire and reset it to fireRate.
-    // This gives a controlled, steady fire rate instead of one bullet
-    // per frame (which at 60-144fps would be absurdly fast).
+    // left mouse button is held) we fire and reset it to fireRate. This
+    // gives a controlled, steady fire rate instead of one bullet per
+    // frame (which at 60-144fps would be absurdly fast). Automatic
+    // weapons (see Weapon.js) fire repeatedly for as long as the button
+    // stays down; semi-auto ones also require shotFiredThisPress to
+    // still be false, which caps them at one shot per press no matter
+    // how long it's held -- it only goes back to false on mouseup.
+    const currentWeapon = player.userData.playerClass.weapons[currentWeaponIndex];
     shotCooldown -= deltaTime;
-    if (isMouseDown && shotCooldown <= 0) {
+    if (isMouseDown && shotCooldown <= 0 && (currentWeapon.automatic || !shotFiredThisPress)) {
         shootBullet();
-        shotCooldown = player.userData.playerClass.weapons[currentWeaponIndex].fireRate;
+        shotCooldown = currentWeapon.fireRate;
+        if (!currentWeapon.automatic) shotFiredThisPress = true;
     }
+
+    updateAimIndicator(deltaTime); // redraw the aim beam/marker for wherever the next shot would actually go
 
     updateCamera(); // keep camera locked to the player every frame
 }
@@ -713,6 +893,230 @@ function updateBullets(deltaTime) {
 }
 
 // ============================================================
+// AIM INDICATOR
+// A diegetic aiming aid instead of a flat 2D crosshair: a thin glowing
+// beam plus an end marker, both repositioned every frame along the
+// EXACT same ray Weapon.shoot() actually fires along -- same origin
+// (muzzle world position) and direction (cameraYaw), see Weapon.js.
+// Because it's driven by the real shot math instead of a fixed screen
+// position, it's always truthful about where the next bullet goes, and
+// the marker flags a guaranteed hit before you even pull the trigger.
+// ============================================================
+function createAimIndicator() {
+    // Unit-height cylinder, stretched via scale.y and rotated via
+    // quaternion every frame to span from the muzzle to the impact
+    // point (see updateAimIndicator()).
+    const beamGeo = new THREE.CylinderGeometry(0.025, 0.025, 1, 6);
+    const beamMat = new THREE.MeshStandardMaterial({
+        transparent: true,
+        opacity: 0.5,
+        depthWrite: false // a half-see-through beam shouldn't hide the enemy/marker it's pointing at
+    });
+    aimBeam = new THREE.Mesh(beamGeo, beamMat);
+    aimBeam.frustumCulled = false; // its footprint changes every frame as it stretches -- skip culling rather than fight stale bounds
+    aimBeam.visible = false; // shown once PLAY is pressed -- see the play-button handler
+    scene.add(aimBeam);
+
+    // Small glowing marker right at the impact point -- grows and turns
+    // white when it currently lands on an enemy, a clear "this will hit"
+    // signal at a glance, on top of just tracing the shot's path.
+    const markerGeo = new THREE.OctahedronGeometry(0.12, 0);
+    const markerMat = new THREE.MeshStandardMaterial({ emissiveIntensity: 2.2 });
+    aimMarker = new THREE.Mesh(markerGeo, markerMat);
+    aimMarker.frustumCulled = false;
+    aimMarker.visible = false;
+    scene.add(aimMarker);
+}
+
+// Called every frame from updateGame(). Casts the same ray Weapon.shoot()
+// would fire along, tests it against every enemy with the same
+// ray-vs-circle math updateEnemies() uses for real bullet hits, then redraws the beam/marker to match.
+function updateAimIndicator(deltaTime) {
+    const weapon = player.userData.playerClass.weapons[currentWeaponIndex];
+
+    const origin = new THREE.Vector3();
+    player.userData.muzzle.getWorldPosition(origin);
+
+    const dirX = Math.sin(cameraYaw);
+    const dirZ = Math.cos(cameraYaw);
+
+    // Never claims a longer reach than this weapon's own bullets actually
+    // have (see Weapon.shoot()/updateBullets()), capped to the same ring
+    // distance enemies spawn at (arenaSpawnRadius) so it never trails off
+    // into empty space past where an enemy could even be standing.
+    const maxDistance = Math.min(weapon.bulletSpeed * weapon.bulletLifetime, arenaSpawnRadius);
+
+    let hitDistance = maxDistance;
+    let hitEnemy = false;
+    for (const enemy of enemies) {
+        const ex = enemy.mesh.position.x - origin.x;
+        const ez = enemy.mesh.position.z - origin.z;
+        const t = ex * dirX + ez * dirZ; // distance along the ray to this enemy's closest approach
+        if (t < 0 || t > hitDistance) continue;
+
+        const perpDist = Math.hypot(ex - dirX * t, ez - dirZ * t);
+        if (perpDist >= enemy.hitRadius) continue;
+
+        // Back up from the closest-approach point to where the ray
+        // actually enters the enemy's hit circle, so the marker sits on
+        // its front edge instead of floating at its center.
+        const entry = t - Math.sqrt(enemy.hitRadius * enemy.hitRadius - perpDist * perpDist);
+        if (entry >= 0 && entry < hitDistance) {
+            hitDistance = entry;
+            hitEnemy = true;
+        }
+    }
+
+    const endX = origin.x + dirX * hitDistance;
+    const endZ = origin.z + dirZ * hitDistance;
+
+    // Stretch+orient the unit cylinder so it spans exactly from the
+    // muzzle to the impact point.
+    aimBeam.position.set((origin.x + endX) / 2, origin.y, (origin.z + endZ) / 2);
+    aimBeam.scale.set(1, hitDistance, 1);
+    aimBeam.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), new THREE.Vector3(dirX, 0, dirZ));
+
+    aimMarker.position.set(endX, origin.y, endZ);
+    aimMarker.rotation.y += deltaTime * 2.5; // slow tumble -- reads as an active "scanner", not a static decal
+    aimMarker.rotation.x += deltaTime * 1.6;
+    aimMarker.scale.setScalar(hitEnemy ? 1.6 : 1);
+
+    // Same color/emissive pairing as the real bullet mesh (see
+    // Weapon.createBulletMesh()) -- the beam and marker always match
+    // whatever's actually about to be fired. Flips to plain white on a
+    // confirmed hit as an extra "locked on" cue on top of the size bump.
+    aimBeam.material.color.setHex(weapon.bulletColor);
+    aimBeam.material.emissive.setHex(weapon.bulletEmissive);
+    aimMarker.material.color.setHex(hitEnemy ? 0xffffff : weapon.bulletColor);
+    aimMarker.material.emissive.setHex(hitEnemy ? 0xffffff : weapon.bulletEmissive);
+}
+
+// ============================================================
+// ENEMIES
+// Spawning, AI update, and both directions of bullet collision (player
+// bullets vs. enemies, enemy bullets vs. the player) live here.
+// ============================================================
+
+// Picks a random enemy type and drops it at a random point on a ring
+// just inside the arena boundary, so enemies visibly walk in from the
+// edges instead of popping up next to the player.
+function spawnEnemy() {
+    if (enemies.length >= maxEnemies) return;
+
+    // 70/30 split -- more Grunts than Shooters, so the arena reads as
+    // "mostly rushing you" with the occasional ranged threat mixed in.
+    const enemy = Math.random() < 0.7 ? new Grunt() : new Shooter();
+
+    const angle = Math.random() * Math.PI * 2;
+    enemy.mesh.position.set(Math.cos(angle) * arenaSpawnRadius, 0, Math.sin(angle) * arenaSpawnRadius);
+
+    scene.add(enemy.mesh);
+    enemies.push(enemy);
+}
+
+// Runs every frame: handles the spawn timer, updates every enemy's AI
+// (movement/facing/attack -- see Enemy.update() in enemies/Enemy.js),
+// and checks player bullets against every enemy for a hit.
+function updateEnemies(deltaTime) {
+    enemySpawnTimer -= deltaTime;
+    if (enemySpawnTimer <= 0) {
+        spawnEnemy();
+        enemySpawnTimer = enemySpawnInterval;
+    }
+
+    // Rebuilt fresh every frame and handed to each enemy's onAttack() (see
+    // enemies/Enemy.js) -- melee enemies call dealDamageToPlayer directly,
+    // ranged ones use scene/playerPosition/spawnEnemyBullet to fire at the
+    // player instead. This is what lets Enemy.update() stay completely
+    // generic: it doesn't need to know HOW a given enemy type attacks.
+    const attackContext = {
+        dealDamageToPlayer: damagePlayer,
+        spawnEnemyBullet: (entry) => enemyBullets.push(entry),
+        playerPosition: player.position,
+        scene
+    };
+
+    for (let i = enemies.length - 1; i >= 0; i--) {
+        const enemy = enemies[i];
+        enemy.update(deltaTime, player.position, attackContext);
+
+        // Player bullets vs. this enemy: a simple XZ-plane distance check
+        for (let j = bullets.length - 1; j >= 0; j--) {
+            const b = bullets[j];
+            const dx = b.mesh.position.x - enemy.mesh.position.x;
+            const dz = b.mesh.position.z - enemy.mesh.position.z;
+            if (Math.hypot(dx, dz) < enemy.hitRadius) {
+                scene.remove(b.mesh);
+                bullets.splice(j, 1);
+
+                if (enemy.takeDamage(b.damage)) {
+                    scene.remove(enemy.mesh);
+                    enemies.splice(i, 1);
+                }
+                break; // this enemy is dead or already hit this frame either way, stop checking its remaining bullets
+            }
+        }
+    }
+}
+
+// Moves every enemy bullet forward, checks it against the player (same
+// distance-check style as above), and removes it on a hit or once it
+// outlives its lifetime.
+function updateEnemyBullets(deltaTime) {
+    for (let i = enemyBullets.length - 1; i >= 0; i--) {
+        const b = enemyBullets[i];
+        b.mesh.position.addScaledVector(b.velocity, deltaTime);
+        b.age += deltaTime;
+
+        const dx = b.mesh.position.x - player.position.x;
+        const dz = b.mesh.position.z - player.position.z;
+        const hitPlayer = Math.hypot(dx, dz) < 0.6; // rough player hit radius
+
+        if (hitPlayer || b.age > b.lifetime) {
+            scene.remove(b.mesh);
+            enemyBullets.splice(i, 1);
+            if (hitPlayer) damagePlayer(b.damage);
+        }
+    }
+}
+
+// ============================================================
+// PLAYER HEALTH
+// ============================================================
+function damagePlayer(amount) {
+    if (playerHealth <= 0) return; // already dead -- ignore further hits until the page reloads (see triggerGameOver())
+    playerHealth = Math.max(0, playerHealth - amount);
+    updateHealthUI();
+    if (playerHealth <= 0) triggerGameOver();
+}
+
+function updateHealthUI() {
+    const pct = playerHealth / playerMaxHealth;
+    healthFillEl.style.width = `${pct * 100}%`;
+    healthValueEl.textContent = Math.ceil(playerHealth);
+    // Shifts green -> yellow -> red as health drops
+    healthFillEl.style.backgroundColor = pct > 0.5 ? '#00ffcc' : pct > 0.25 ? '#ffcc00' : '#ff3344';
+}
+
+// Freezes gameplay, releases the pointer lock (so the cursor + RESTART
+// button are usable again), and shows the game-over overlay. Restarting
+// just reloads the page (see the restart-button listener in initMenu())
+// rather than hand-resetting every piece of mutable state (enemies,
+// bullets, cooldowns, position...) 
+function triggerGameOver() {
+    gameStarted = false; // set BEFORE exitPointerLock() so the resulting
+                          // pointerlockchange event doesn't also open the pause menu
+    gamePaused = false;
+    pauseMenuEl.classList.add('hidden');
+    document.exitPointerLock();
+    uiOverlayEl.style.display = 'none';
+    hudBottomRightEl.style.display = 'none';
+    aimBeam.visible = false;
+    aimMarker.visible = false;
+    gameOverEl.classList.remove('hidden');
+}
+
+// ============================================================
 // CAMERA — mouse-controlled, follows behind the player.
 // Since player.rotation.y is also set to cameraYaw (see updateGame),
 // the character's "front" direction is (sin(yaw), cos(yaw)) -- so we
@@ -750,12 +1154,16 @@ function animate() {
 
     const deltaTime = clock.getDelta(); // seconds elapsed since the last frame
 
-    if (gameStarted) {
+    if (gameStarted && !gamePaused) {
         updateGame(deltaTime); // move player, update camera
         updateBullets(deltaTime); // move active bullets, remove expired ones
-    } else {
+        updateEnemies(deltaTime); // spawn/move/attack enemies, check player bullets against them
+        updateEnemyBullets(deltaTime); // move enemy bullets, check them against the player
+    } else if (!gameStarted) {
         updateMenuPreview(deltaTime); // idle turntable + camera framing behind the main menu
     }
+    // else: gameStarted && gamePaused -- render the frozen scene as-is,
+    // no updates (see the pointerlockchange listener in init())
 
     renderer.render(scene, camera); // actually draw everything to the canvas
 }

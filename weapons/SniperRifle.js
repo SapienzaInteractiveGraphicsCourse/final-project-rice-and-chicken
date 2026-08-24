@@ -1,6 +1,16 @@
 import * as THREE from 'three';
 import { Weapon } from './Weapon.js';
 
+// Flat silhouette for the weapon-select HUD -- same body language as
+// the Rifle icon but with a scope circle on top, echoing the 3D model.
+const SNIPER_ICON = `<svg viewBox="0 0 64 24" xmlns="http://www.w3.org/2000/svg" fill="currentColor">
+    <rect x="1" y="10" width="9" height="6"/>
+    <rect x="9" y="8" width="28" height="7"/>
+    <rect x="37" y="10.5" width="25" height="2.5"/>
+    <rect x="17" y="1" width="15" height="5" rx="2"/>
+    <rect x="19" y="16" width="6" height="8" transform="skewX(-12)"/>
+</svg>`;
+
 // ============================================================
 // SNIPER RIFLE
 // Slow, hard-hitting, long-range: much lower fire rate than the
@@ -14,9 +24,12 @@ export class SniperRifle extends Weapon {
             fireRate: 1.1,
             bulletSpeed: 90,
             bulletLifetime: 2.2,
+            damage: 45,             // slow fire rate, but hits hard enough to nearly one-shot most enemies
             bulletRadius: 0.09,
             bulletColor: 0xff4433,
-            bulletEmissive: 0xff2200
+            bulletEmissive: 0xff2200,
+            name: 'SNIPER',
+            icon: SNIPER_ICON
         });
     }
 

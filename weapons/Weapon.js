@@ -12,13 +12,17 @@ import * as THREE from 'three';
 // firing several pellets in a spread instead of one bullet).
 // ============================================================
 export class Weapon {
-    constructor({ fireRate, bulletSpeed, bulletLifetime, bulletRadius = 0.08, bulletColor = 0xffaa00, bulletEmissive = 0xff6600 }) {
+    constructor({ fireRate, bulletSpeed, bulletLifetime, damage = 10, bulletRadius = 0.08, bulletColor = 0xffaa00, bulletEmissive = 0xff6600, name = 'Weapon', icon = '', automatic = true }) {
         this.fireRate = fireRate;             // seconds between shots
         this.bulletSpeed = bulletSpeed;       // units per second
         this.bulletLifetime = bulletLifetime; // seconds before a bullet despawns
+        this.damage = damage;                 // HP removed from whatever a bullet hits (see enemies/Enemy.js)
         this.bulletRadius = bulletRadius;
         this.bulletColor = bulletColor;
         this.bulletEmissive = bulletEmissive;
+        this.name = name;                     // shown in the in-game weapon-select HUD (see updateWeaponSelectorUI() in main.js)
+        this.icon = icon;                     // inline SVG markup for the same HUD box
+        this.automatic = automatic;           // false = fires once per click, must release and click again (see updateGame() in main.js)
     }
 
     // Must be overridden by every subclass: builds the THREE.Group
@@ -64,7 +68,8 @@ export class Weapon {
             mesh: bullet,
             velocity: direction.multiplyScalar(this.bulletSpeed),
             age: 0,
-            lifetime: this.bulletLifetime
+            lifetime: this.bulletLifetime,
+            damage: this.damage
         };
     }
 }

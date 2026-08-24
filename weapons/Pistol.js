@@ -1,10 +1,17 @@
 import * as THREE from 'three';
 import { Weapon } from './Weapon.js';
 
+// Flat silhouette for the weapon-select HUD
+const PISTOL_ICON = `<svg viewBox="0 0 64 24" xmlns="http://www.w3.org/2000/svg" fill="currentColor">
+    <rect x="16" y="8" width="28" height="7"/>
+    <rect x="44" y="9" width="12" height="4"/>
+    <rect x="18" y="15" width="7" height="9" transform="skewX(-14)"/>
+</svg>`;
+
 // ============================================================
 // PISTOL
 // A compact sidearm: slower, weaker fire rate is traded for a
-// faster, lighter bullet. 
+// faster, lighter bullet.
 // ============================================================
 export class Pistol extends Weapon {
     constructor() {
@@ -12,9 +19,13 @@ export class Pistol extends Weapon {
             fireRate: 0.35,
             bulletSpeed: 55,
             bulletLifetime: 1.0,
+            damage: 7,
             bulletRadius: 0.06,
             bulletColor: 0x66ccff,
-            bulletEmissive: 0x3399ff
+            bulletEmissive: 0x3399ff,
+            name: 'PISTOL',
+            icon: PISTOL_ICON,
+            automatic: false // one shot per click -- has to be released and clicked again for the next
         });
     }
 

@@ -23,6 +23,291 @@ body {
 }
 
 /* ============================================================
+   BOTTOM-RIGHT HUD (health + weapon select)
+   Same "overlay on the still-rendering canvas" approach as
+   #ui-overlay, but anchored bottom-right and shown/hidden in
+   tandem with it (see the PLAY/triggerGameOver handlers in
+   main.js). Mirrors the main menu's bottom-right class-select box
+   (see .class-select below) so the in-game HUD reads as the same
+   visual language as the menu.
+   ============================================================ */
+#hud-bottom-right {
+    display: none; /* shown once PLAY is pressed -- see main.js */
+    position: fixed;
+    right: 40px;
+    bottom: 40px;
+    width: 320px; /* shared width -- both rows below stretch to fill it, so their edges line up */
+    flex-direction: column;
+    align-items: stretch;
+    gap: 14px;
+    font-family: 'Courier New', Courier, monospace;
+    z-index: 5;
+    pointer-events: none;
+}
+
+#health-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    width: 100%;
+}
+
+.health-icon {
+    width: 20px;
+    height: 20px;
+    flex-shrink: 0;
+    color: #ff3344;
+    filter: drop-shadow(0 0 4px rgba(255, 51, 68, 0.7));
+}
+
+#health-bar-container {
+    flex: 1; /* fills the row up to health-value, so the row's total width matches #weapon-select below */
+    height: 14px;
+    border: 2px solid #00ffcc;
+    background: rgba(0, 20, 20, 0.5);
+    box-shadow: 0 0 8px rgba(0, 255, 204, 0.3);
+}
+
+#health-bar-fill {
+    height: 100%;
+    width: 100%;
+    background: #00ffcc; /* overridden per-frame in JS as health drops -- see updateHealthUI() in main.js */
+    transition: width 0.2s ease, background-color 0.2s ease;
+}
+
+#health-value {
+    min-width: 2.4em;
+    text-align: right;
+    color: #00ffcc;
+    text-shadow: 0 0 5px #00ffcc;
+    font-weight: bold;
+}
+
+#weapon-select {
+    display: flex;
+    gap: 10px;
+    width: 100%;
+}
+
+/* Landscape rectangles (wide, short) instead of the earlier near-square
+   boxes -- icon on the left, name/key stacked on the right, each box
+   sharing the row equally (flex: 1) so the pair always spans the full
+   width of #hud-bottom-right, same as #health-row above. */
+.weapon-box {
+    flex: 1;
+    height: 54px;
+    border: 2px solid #00ffcc;
+    background: rgba(0, 15, 15, 0.6);
+    box-shadow: 0 0 12px rgba(0, 255, 204, 0.25), inset 0 0 14px rgba(0, 255, 204, 0.08);
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    padding: 0 10px;
+    clip-path: polygon(8px 0, 100% 0, 100% calc(100% - 8px), calc(100% - 8px) 100%, 0 100%, 0 8px);
+    transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+/* Marks whichever weapon is currently equipped -- toggled by
+   updateWeaponSelectorUI() in main.js. */
+.weapon-box.active {
+    border-color: #ffffff;
+    box-shadow: 0 0 18px rgba(0, 255, 204, 0.65), inset 0 0 18px rgba(0, 255, 204, 0.18);
+}
+
+.weapon-icon {
+    width: 40px;
+    height: 16px;
+    flex-shrink: 0;
+    color: #00ffcc;
+}
+
+.weapon-icon svg {
+    width: 100%;
+    height: 100%;
+}
+
+.weapon-info {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 3px;
+}
+
+.weapon-name {
+    font-size: 0.55rem;
+    letter-spacing: 0.05em;
+    color: #00ffcc;
+    text-shadow: 0 0 4px rgba(0, 255, 204, 0.6);
+}
+
+.weapon-key {
+    font-size: 0.6rem;
+    color: rgba(0, 255, 204, 0.6);
+}
+
+/* ============================================================
+   GAME OVER
+   Same "overlay on top of the still-rendering canvas" approach as
+   #main-menu, but red-tinted for a clear "you died" read instead of the
+   menu's teal. Shown by triggerGameOver() in main.js when playerHealth
+   reaches 0; RESTART just reloads the page (see main.js) rather than
+   hand-resetting every piece of game state.
+   ============================================================ */
+#game-over {
+    position: fixed;
+    inset: 0;
+    z-index: 20;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 48px;
+    background: rgba(20, 0, 0, 0.75);
+}
+
+#game-over.hidden {
+    display: none;
+}
+
+.game-over-title {
+    font-family: 'Orbitron', sans-serif;
+    font-weight: 900;
+    font-size: clamp(2rem, 6vw, 4rem);
+    letter-spacing: 0.2em;
+    color: #ff3344;
+    text-shadow: 0 0 15px rgba(255, 51, 68, 0.8), 0 0 40px rgba(255, 51, 68, 0.4);
+    margin: 0;
+    text-align: center;
+}
+
+.restart-button {
+    padding: 18px 64px;
+    font-family: 'Orbitron', sans-serif;
+    font-weight: 900;
+    font-size: 1.6rem;
+    letter-spacing: 0.3em;
+    color: #1a0406;
+    background: linear-gradient(180deg, #ff5566, #cc1122);
+    border: none;
+    cursor: pointer;
+    clip-path: polygon(16px 0, 100% 0, 100% calc(100% - 16px), calc(100% - 16px) 100%, 0 100%, 0 16px);
+    box-shadow: 0 0 20px rgba(255, 51, 68, 0.65), 0 0 60px rgba(255, 51, 68, 0.3);
+    transition: transform 0.15s, box-shadow 0.15s;
+}
+
+.restart-button:hover {
+    transform: scale(1.06);
+    box-shadow: 0 0 30px rgba(255, 51, 68, 0.85), 0 0 90px rgba(255, 51, 68, 0.5);
+}
+
+.restart-button:active {
+    transform: scale(0.97);
+}
+
+/* ============================================================
+   PAUSE MENU
+   Same fixed full-screen overlay pattern as #game-over, but teal
+   (matches the main menu) instead of red -- "paused", not "dead".
+   Shown when Pointer Lock is exited via Escape mid-game (see the
+   pointerlockchange listener in main.js's init()); animate() stops
+   calling updateGame()/updateBullets()/updateEnemies()/
+   updateEnemyBullets() while gamePaused is true, so the arena
+   freezes in place behind this overlay instead of continuing to
+   simulate off-screen. RESUME just re-requests Pointer Lock, same
+   call the PLAY button itself makes.
+   ============================================================ */
+#pause-menu {
+    position: fixed;
+    inset: 0;
+    z-index: 20;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 48px;
+    background: rgba(0, 15, 15, 0.75);
+}
+
+#pause-menu.hidden {
+    display: none;
+}
+
+.pause-title {
+    font-family: 'Orbitron', sans-serif;
+    font-weight: 900;
+    font-size: clamp(2rem, 6vw, 4rem);
+    letter-spacing: 0.2em;
+    color: #00ffcc;
+    text-shadow: 0 0 15px rgba(0, 255, 204, 0.8), 0 0 40px rgba(0, 255, 204, 0.4);
+    margin: 0;
+    text-align: center;
+}
+
+/* Teal twin of .restart-button -- sits centered in #pause-menu's own
+   flex layout (unlike .play-button, which is fixed to the bottom of
+   the viewport for the main menu's different layout needs). */
+.resume-button {
+    padding: 18px 64px;
+    font-family: 'Orbitron', sans-serif;
+    font-weight: 900;
+    font-size: 1.6rem;
+    letter-spacing: 0.3em;
+    color: #04140f;
+    background: linear-gradient(180deg, #00ffcc, #00b894);
+    border: none;
+    cursor: pointer;
+    clip-path: polygon(16px 0, 100% 0, 100% calc(100% - 16px), calc(100% - 16px) 100%, 0 100%, 0 16px);
+    box-shadow: 0 0 20px rgba(0, 255, 204, 0.65), 0 0 60px rgba(0, 255, 204, 0.3);
+    transition: transform 0.15s, box-shadow 0.15s;
+}
+
+.resume-button:hover {
+    transform: scale(1.06);
+    box-shadow: 0 0 30px rgba(0, 255, 204, 0.85), 0 0 90px rgba(0, 255, 204, 0.5);
+}
+
+.resume-button:active {
+    transform: scale(0.97);
+}
+
+.pause-buttons {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 20px;
+}
+
+/* Secondary action (leave the run entirely) -- an outlined "ghost"
+   variant instead of a second filled button, so RESUME still reads as
+   the primary/default choice at a glance. */
+.quit-button {
+    padding: 18px 40px;
+    font-family: 'Orbitron', sans-serif;
+    font-weight: 900;
+    font-size: 1.1rem;
+    letter-spacing: 0.15em;
+    color: #00ffcc;
+    background: rgba(0, 255, 204, 0.08);
+    border: 2px solid #00ffcc;
+    cursor: pointer;
+    clip-path: polygon(14px 0, 100% 0, 100% calc(100% - 14px), calc(100% - 14px) 100%, 0 100%, 0 14px);
+    box-shadow: 0 0 10px rgba(0, 255, 204, 0.25);
+    transition: transform 0.15s, box-shadow 0.15s, background 0.15s;
+}
+
+.quit-button:hover {
+    background: rgba(0, 255, 204, 0.18);
+    transform: scale(1.05);
+    box-shadow: 0 0 18px rgba(0, 255, 204, 0.5);
+}
+
+.quit-button:active {
+    transform: scale(0.97);
+}
+
+/* ============================================================
    MAIN MENU
    Sits on top of the (already-rendering) three.js canvas -- the
    canvas shows through everywhere except the title / buttons, so

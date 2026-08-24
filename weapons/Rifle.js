@@ -1,6 +1,16 @@
 import * as THREE from 'three';
 import { Weapon } from './Weapon.js';
 
+// Flat silhouette shown in the in-game weapon-select HUD (see
+// updateWeaponSelectorUI() in main.js) -- stock + receiver + long
+// barrel + curved magazine, echoing the actual 3D model below.
+const RIFLE_ICON = `<svg viewBox="0 0 64 24" xmlns="http://www.w3.org/2000/svg" fill="currentColor">
+    <rect x="2" y="9" width="9" height="7"/>
+    <rect x="10" y="7" width="30" height="8"/>
+    <rect x="40" y="9.5" width="20" height="3"/>
+    <rect x="17" y="15" width="6" height="8" transform="skewX(-12)"/>
+</svg>`;
+
 // ============================================================
 // RIFLE
 // The sci-fi AK-47-style weapon the player starts with. Model
@@ -13,8 +23,11 @@ export class Rifle extends Weapon {
             fireRate: 0.2,          // seconds between shots (lower = faster fire rate)
             bulletSpeed: 40,        // units per second
             bulletLifetime: 1.5,    // seconds before a bullet is removed, even if it hit nothing
+            damage: 10,             // fast fire rate makes up for the modest per-shot damage
             bulletColor: 0xffaa00,
-            bulletEmissive: 0xff6600
+            bulletEmissive: 0xff6600,
+            name: 'RIFLE',
+            icon: RIFLE_ICON
         });
     }
 

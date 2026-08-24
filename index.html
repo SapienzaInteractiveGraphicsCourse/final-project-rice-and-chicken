@@ -16,9 +16,49 @@
     <div id="ui-overlay">
         <h2>SYSTEM: ACTIVE</h2>
         <p>MOVE: W, A, S, D / Arrows</p>
-        <p>WEAPON: [1] Primary &nbsp; [2] Sidearm</p>
-        <p>CLASS: [C] Assault &lt;-&gt; Sniper</p>
         <p>SHIFT DIMENSION: [TAB] (Coming soon)</p>
+    </div>
+
+    <div id="hud-bottom-right">
+        <div id="health-row">
+            <svg class="health-icon" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" fill="currentColor">
+                <path d="M9 2h6v7h7v6h-7v7H9v-7H2V9h7V2z"/>
+            </svg>
+            <div id="health-bar-container">
+                <div id="health-bar-fill"></div>
+            </div>
+            <span id="health-value">100</span>
+        </div>
+
+        <div id="weapon-select">
+            <div class="weapon-box" id="weapon-box-0">
+                <div class="weapon-icon" id="weapon-icon-0"></div>
+                <div class="weapon-info">
+                    <div class="weapon-name" id="weapon-name-0"></div>
+                    <div class="weapon-key">[1]</div>
+                </div>
+            </div>
+            <div class="weapon-box" id="weapon-box-1">
+                <div class="weapon-icon" id="weapon-icon-1"></div>
+                <div class="weapon-info">
+                    <div class="weapon-name" id="weapon-name-1"></div>
+                    <div class="weapon-key">[2]</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="game-over" class="hidden">
+        <h1 class="game-over-title">SYSTEM OFFLINE</h1>
+        <button id="restart-button" class="restart-button">RESTART</button>
+    </div>
+
+    <div id="pause-menu" class="hidden">
+        <h1 class="pause-title">PAUSED</h1>
+        <div class="pause-buttons">
+            <button id="resume-button" class="resume-button">RESUME</button>
+            <button id="quit-button" class="quit-button">MAIN MENU</button>
+        </div>
     </div>
 
     <div id="main-menu">
