@@ -3,6 +3,7 @@ import { Assault } from './playerClasses/Assault.js';
 import { Sniper } from './playerClasses/Sniper.js';
 import { Grunt } from './enemies/Grunt.js';
 import { Shooter } from './enemies/Shooter.js';
+import { Boss } from './enemies/Boss.js';
 import { createEnvironment } from './environment.js';
 
 // ============================================================
@@ -89,9 +90,24 @@ let enemies = [];
 let enemyBullets = [];
 
 let enemySpawnTimer = 0;
-const enemySpawnInterval = 4;  // seconds between spawns
-const maxEnemies = 12;         // hard cap so a slow frame can't spiral into spawning forever more
-const arenaSpawnRadius = 22;   // just inside the movement boundary (limit = 24 in updateGame())
+const enemySpawnInterval = 4;   // seconds between spawns
+const maxConcurrentEnemies = 8; // hard cap on how many can be alive AT ONCE, regardless of wave size -- paces out even a big wave instead of dumping it all in one place
+const arenaSpawnRadius = 22;    // just inside the movement boundary (limit = 24 in updateGame())
+
+// --- Waves ---
+// 9 regular waves of increasing size/difficulty, then a single boss
+// (DOOMHORN, see enemies/Boss.js) on wave 10 -- see startWave().
+// Enemy count per regular wave, tuned by hand rather than a formula so
+// the pacing is easy to eyeball/adjust; index 0 = wave 1 ... index 8 = wave 9.
+const waveSizes = [5, 6, 8, 9, 11, 12, 14, 15, 17];
+const totalWaves = waveSizes.length + 1; // + the boss wave
+let currentWave = 0;             // set for real by startWave(1) on PLAY
+let waveSpawnQueue = 0;          // enemies still waiting to be spawned this wave
+let waveEnemiesRemaining = 0;    // enemies not yet KILLED this wave (spawned or not) -- hits 0 => wave cleared
+let waveTransitioning = false;   // true during the pause between clearing a wave and starting the next
+let waveTransitionTimer = 0;
+let isBossWave = false;
+let boss = null;                 // the current Boss instance, only set during wave 10
 
 // --- Player health ---
 const playerMaxHealth = 100;
@@ -381,6 +397,14 @@ const healthFillEl = document.getElementById('health-bar-fill');
 const healthValueEl = document.getElementById('health-value');
 const gameOverEl = document.getElementById('game-over');
 const pauseMenuEl = document.getElementById('pause-menu');
+const victoryScreenEl = document.getElementById('victory-screen');
+const waveValueEl = document.getElementById('wave-value');
+const waveTotalEl = document.getElementById('wave-total');
+waveTotalEl.textContent = totalWaves; // static -- set once, matches waveSizes.length + the boss wave
+const waveBannerEl = document.getElementById('wave-banner');
+const bossBarContainerEl = document.getElementById('boss-bar-container');
+const bossNameEl = document.getElementById('boss-name');
+const bossHealthFillEl = document.getElementById('boss-health-fill');
 const weaponBoxEls = [document.getElementById('weapon-box-0'), document.getElementById('weapon-box-1')];
 const weaponIconEls = [document.getElementById('weapon-icon-0'), document.getElementById('weapon-icon-1')];
 const weaponNameEls = [document.getElementById('weapon-name-0'), document.getElementById('weapon-name-1')];
@@ -427,10 +451,17 @@ function initMenu() {
         enemyBullets.forEach((b) => scene.remove(b.mesh));
         enemyBullets = [];
         enemySpawnTimer = 0;
+        boss = null;
+        waveTransitioning = false;
+        bossBarContainerEl.classList.add('hidden');
+        waveBannerEl.classList.remove('visible');
         updateHealthUI();
         updateWeaponSelectorUI();
+        startWave(1);
         gamePaused = false;
         pauseMenuEl.classList.add('hidden');
+        gameOverEl.classList.add('hidden');
+        victoryScreenEl.classList.add('hidden');
         aimBeam.visible = true;
         aimMarker.visible = true;
 
@@ -445,6 +476,11 @@ function initMenu() {
     // simpler and far less error-prone than hand-resetting every piece of
     // mutable state (player position/rotation, cooldowns, arrays...).
     document.getElementById('restart-button').addEventListener('click', () => {
+        location.reload();
+    });
+
+    // Victory's own way back in -- same reload-based reasoning as restart-button.
+    document.getElementById('victory-button').addEventListener('click', () => {
         location.reload();
     });
 
@@ -992,20 +1028,63 @@ function updateAimIndicator(deltaTime) {
 }
 
 // ============================================================
-// ENEMIES
-// Spawning, AI update, and both directions of bullet collision (player
-// bullets vs. enemies, enemy bullets vs. the player) live here.
+// ENEMIES / WAVES
+// Spawning, AI update, both directions of bullet collision (player
+// bullets vs. enemies, enemy bullets vs. the player), and the 10-wave
+// structure (9 regular waves + the DOOMHORN boss on wave 10) all live
+// here. See enemies/Enemy.js, Grunt.js, Shooter.js, Boss.js.
 // ============================================================
+
+// Shows a transient top-center announcement ("WAVE 3", "WAVE 3
+// CLEARED", the boss warning) -- purely cosmetic text, so unlike the
+// wave-transition timer below it's fine to hide it on a plain
+// wall-clock setTimeout rather than a deltaTime countdown.
+let waveBannerHideTimer = null;
+function showWaveBanner(text, durationMs) {
+    waveBannerEl.textContent = text;
+    waveBannerEl.classList.add('visible');
+    if (waveBannerHideTimer) clearTimeout(waveBannerHideTimer);
+    waveBannerHideTimer = setTimeout(() => waveBannerEl.classList.remove('visible'), durationMs);
+}
+
+// Starts wave `waveNumber`: either queues up a batch of regular enemies
+// (see spawnEnemy()/updateEnemies()) or, on the final wave, drops in
+// the boss directly. Called once on PLAY (wave 1) and again every time
+// updateEnemies() detects the current wave has been fully cleared.
+function startWave(waveNumber) {
+    currentWave = waveNumber;
+    waveValueEl.textContent = waveNumber;
+    isBossWave = waveNumber === totalWaves;
+
+    if (isBossWave) {
+        waveSpawnQueue = 0; // the boss is spawned directly below, not through the regular trickle-spawn queue
+        waveEnemiesRemaining = 1;
+        spawnBoss();
+        showWaveBanner('FINAL WAVE — DOOMHORN INCOMING', 3200);
+    } else {
+        const count = waveSizes[waveNumber - 1];
+        waveSpawnQueue = count;
+        waveEnemiesRemaining = count;
+        showWaveBanner(`WAVE ${waveNumber}`, 2000);
+    }
+}
 
 // Picks a random enemy type and drops it at a random point on a ring
 // just inside the arena boundary, so enemies visibly walk in from the
-// edges instead of popping up next to the player.
+// edges instead of popping up next to the player. Stats scale up a
+// little every wave (see `scale` below) so later waves are tougher, not
+// just more crowded.
 function spawnEnemy() {
-    if (enemies.length >= maxEnemies) return;
+    // More Shooters mixed in as the waves progress (30% -> up to 55%),
+    // so later waves bring more ranged pressure instead of just more
+    // Grunts rushing in the same way.
+    const shooterChance = Math.min(0.3 + currentWave * 0.03, 0.55);
+    const enemy = Math.random() < shooterChance ? new Shooter() : new Grunt();
 
-    // 70/30 split -- more Grunts than Shooters, so the arena reads as
-    // "mostly rushing you" with the occasional ranged threat mixed in.
-    const enemy = Math.random() < 0.7 ? new Grunt() : new Shooter();
+    const scale = 1 + (currentWave - 1) * 0.1; // +10% health/damage per wave past the first
+    enemy.maxHealth *= scale;
+    enemy.health = enemy.maxHealth;
+    enemy.damage = Math.round(enemy.damage * scale);
 
     const angle = Math.random() * Math.PI * 2;
     enemy.mesh.position.set(Math.cos(angle) * arenaSpawnRadius, 0, Math.sin(angle) * arenaSpawnRadius);
@@ -1014,14 +1093,45 @@ function spawnEnemy() {
     enemies.push(enemy);
 }
 
-// Runs every frame: handles the spawn timer, updates every enemy's AI
-// (movement/facing/attack -- see Enemy.update() in enemies/Enemy.js),
-// and checks player bullets against every enemy for a hit.
+function spawnBoss() {
+    boss = new Boss();
+    boss.mesh.position.set(0, 0, arenaSpawnRadius); // +Z is "forward" at the player's default facing (see updateCamera()) -- the boss is visible immediately, not spawned behind them
+    scene.add(boss.mesh);
+    enemies.push(boss); // same array as everything else -- the collision loop below doesn't need to know it's special
+
+    bossNameEl.textContent = boss.name;
+    bossBarContainerEl.classList.remove('hidden');
+    updateBossBarUI();
+}
+
+function updateBossBarUI() {
+    if (!boss) return;
+    bossHealthFillEl.style.width = `${Math.max(0, boss.health / boss.maxHealth) * 100}%`;
+}
+
+// Runs every frame: handles the spawn timer (regular waves) or the
+// inter-wave pause, updates every enemy's AI (movement/facing/attack --
+// see Enemy.update()), and checks player bullets against every enemy
+// for a hit. Wave-clear detection lives at the bottom: once every
+// enemy queued for the current wave has been killed, either starts the
+// next wave or -- if this was the boss -- triggers victory.
 function updateEnemies(deltaTime) {
-    enemySpawnTimer -= deltaTime;
-    if (enemySpawnTimer <= 0) {
-        spawnEnemy();
-        enemySpawnTimer = enemySpawnInterval;
+    if (waveTransitioning) {
+        waveTransitionTimer -= deltaTime;
+        if (waveTransitionTimer <= 0) {
+            waveTransitioning = false;
+            startWave(currentWave + 1);
+        }
+        return; // arena is momentarily clear between waves -- nothing else to do this frame
+    }
+
+    if (!isBossWave) {
+        enemySpawnTimer -= deltaTime;
+        if (enemySpawnTimer <= 0 && waveSpawnQueue > 0 && enemies.length < maxConcurrentEnemies) {
+            spawnEnemy();
+            waveSpawnQueue--;
+            enemySpawnTimer = enemySpawnInterval;
+        }
     }
 
     // Rebuilt fresh every frame and handed to each enemy's onAttack() (see
@@ -1052,9 +1162,23 @@ function updateEnemies(deltaTime) {
                 if (enemy.takeDamage(b.damage)) {
                     scene.remove(enemy.mesh);
                     enemies.splice(i, 1);
+                    waveEnemiesRemaining--;
+                    if (enemy === boss) boss = null;
                 }
                 break; // this enemy is dead or already hit this frame either way, stop checking its remaining bullets
             }
+        }
+    }
+
+    if (isBossWave && boss) updateBossBarUI();
+
+    if (waveEnemiesRemaining <= 0) {
+        if (isBossWave) {
+            triggerVictory();
+        } else {
+            showWaveBanner(`WAVE ${currentWave} CLEARED`, 2200);
+            waveTransitioning = true;
+            waveTransitionTimer = 3;
         }
     }
 }
@@ -1111,9 +1235,26 @@ function triggerGameOver() {
     document.exitPointerLock();
     uiOverlayEl.style.display = 'none';
     hudBottomRightEl.style.display = 'none';
+    bossBarContainerEl.classList.add('hidden');
     aimBeam.visible = false;
     aimMarker.visible = false;
     gameOverEl.classList.remove('hidden');
+}
+
+// Same idea as triggerGameOver(), but for actually winning -- called
+// from updateEnemies() once the boss (wave 10) is defeated. PLAY AGAIN
+// just reloads the page, same reasoning as RESTART.
+function triggerVictory() {
+    gameStarted = false;
+    gamePaused = false;
+    pauseMenuEl.classList.add('hidden');
+    document.exitPointerLock();
+    uiOverlayEl.style.display = 'none';
+    hudBottomRightEl.style.display = 'none';
+    bossBarContainerEl.classList.add('hidden');
+    aimBeam.visible = false;
+    aimMarker.visible = false;
+    victoryScreenEl.classList.remove('hidden');
 }
 
 // ============================================================

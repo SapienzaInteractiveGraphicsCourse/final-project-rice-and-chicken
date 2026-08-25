@@ -15,8 +15,18 @@
 
     <div id="ui-overlay">
         <h2>SYSTEM: ACTIVE</h2>
+        <p>WAVE: <span id="wave-value">1</span> / <span id="wave-total">10</span></p>
         <p>MOVE: W, A, S, D / Arrows</p>
         <p>SHIFT DIMENSION: [TAB] (Coming soon)</p>
+    </div>
+
+    <div id="wave-banner"></div>
+
+    <div id="boss-bar-container" class="hidden">
+        <div id="boss-name"></div>
+        <div id="boss-health-container">
+            <div id="boss-health-fill"></div>
+        </div>
     </div>
 
     <div id="hud-bottom-right">
@@ -51,6 +61,11 @@
     <div id="game-over" class="hidden">
         <h1 class="game-over-title">SYSTEM OFFLINE</h1>
         <button id="restart-button" class="restart-button">RESTART</button>
+    </div>
+
+    <div id="victory-screen" class="hidden">
+        <h1 class="victory-title">VICTORY</h1>
+        <button id="victory-button" class="victory-button">PLAY AGAIN</button>
     </div>
 
     <div id="pause-menu" class="hidden">
