@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import { Weapon } from './Weapon.js';
 
 // Flat silhouette for the weapon-select HUD
@@ -35,11 +36,11 @@ export class Pistol extends Weapon {
     createModel() {
         const gunGroup = new THREE.Group();
 
-        const metalMat = new THREE.MeshStandardMaterial({ color: 0x1a1a22, roughness: 0.3, metalness: 0.8 });
+        const metalMat = new THREE.MeshStandardMaterial({ color: 0x2e2e3a, roughness: 0.3, metalness: 0.8 }); 
         const glowMat = new THREE.MeshStandardMaterial({ color: 0x002233, emissive: 0x33aaff, emissiveIntensity: 2 });
 
         // --- Slide (top body, houses the barrel) ---
-        const slide = new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.09, 0.32), metalMat);
+        const slide = new THREE.Mesh(new RoundedBoxGeometry(0.09, 0.09, 0.32, 2, 0.015), metalMat);
         slide.position.set(0, 0.02, 0.14);
         slide.castShadow = true;
         gunGroup.add(slide);
@@ -60,7 +61,7 @@ export class Pistol extends Weapon {
         gunGroup.userData.muzzle = muzzle;
 
         // --- Grip ---
-        const grip = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.18, 0.08), metalMat);
+        const grip = new THREE.Mesh(new RoundedBoxGeometry(0.07, 0.18, 0.08, 2, 0.012), metalMat);
         grip.position.set(0, -0.11, -0.06);
         grip.rotation.x = -0.25; // angled back, same idea as Rifle's grip
         grip.castShadow = true;

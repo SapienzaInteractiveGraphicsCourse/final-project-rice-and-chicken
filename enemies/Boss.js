@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import { Enemy } from './Enemy.js';
 
 // ============================================================
@@ -31,15 +32,15 @@ export class Boss extends Enemy {
     createModel() {
         const enemyGroup = new THREE.Group();
 
-        const skinMat = new THREE.MeshStandardMaterial({ color: 0x4a0808, roughness: 0.55, metalness: 0.3 });
-        const darkMat = new THREE.MeshStandardMaterial({ color: 0x120202, roughness: 0.4, metalness: 0.5 });
+        const skinMat = new THREE.MeshStandardMaterial({ color: 0x6e1212, roughness: 0.55, metalness: 0.3 }); 
+        const darkMat = new THREE.MeshStandardMaterial({ color: 0x241010, roughness: 0.4, metalness: 0.5 }); 
         const eyeMat = new THREE.MeshStandardMaterial({ color: 0x330000, emissive: 0xff1111, emissiveIntensity: 3 });
         const emberMat = new THREE.MeshStandardMaterial({ color: 0x331100, emissive: 0xff5500, emissiveIntensity: 2.5 });
 
         // --- Torso ---
         // Wide and deep, not just tall -- a hulking, broad-shouldered
         // frame reads as "boss" far more than simply scaling height up.
-        const torsoGeo = new THREE.BoxGeometry(1.7, 1.5, 1.05);
+        const torsoGeo = new RoundedBoxGeometry(1.7, 1.5, 1.05, 2, 0.1);
         const torso = new THREE.Mesh(torsoGeo, skinMat);
         torso.position.y = 1.75;
         torso.castShadow = true;
@@ -71,7 +72,7 @@ export class Boss extends Enemy {
         }
 
         // --- Head ---
-        const headGeo = new THREE.BoxGeometry(0.72, 0.64, 0.64);
+        const headGeo = new RoundedBoxGeometry(0.72, 0.64, 0.64, 2, 0.07);
         const head = new THREE.Mesh(headGeo, darkMat);
         head.position.y = 0.75 + 0.28;
         head.castShadow = true;
@@ -103,7 +104,7 @@ export class Boss extends Enemy {
         head.add(rightHorn);
 
         // --- Arms (set wide off the broad torso, bigger claws) ---
-        const armGeo = new THREE.BoxGeometry(0.36, 1.15, 0.36);
+        const armGeo = new RoundedBoxGeometry(0.36, 1.15, 0.36, 2, 0.06);
         const leftArm = new THREE.Mesh(armGeo, skinMat);
         leftArm.position.set(-0.98, 0.1, 0);
         leftArm.castShadow = true;
@@ -128,7 +129,7 @@ export class Boss extends Enemy {
         rightArm.add(rightClaw);
 
         // --- Legs (wide stance, matching the broad torso) ---
-        const legGeo = new THREE.BoxGeometry(0.46, 1.05, 0.46);
+        const legGeo = new RoundedBoxGeometry(0.46, 1.05, 0.46, 2, 0.06);
         const leftLeg = new THREE.Mesh(legGeo, skinMat);
         leftLeg.position.set(-0.42, 0.525, 0);
         leftLeg.castShadow = true;

@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import { Enemy } from './Enemy.js';
 
 // ============================================================
@@ -23,14 +24,14 @@ export class Grunt extends Enemy {
         const enemyGroup = new THREE.Group();
 
         const bodyMat = new THREE.MeshStandardMaterial({ color: 0x8a1f1f, roughness: 0.65, metalness: 0.25 });
-        const clawMat = new THREE.MeshStandardMaterial({ color: 0x1a1010, roughness: 0.4, metalness: 0.5 });
+        const clawMat = new THREE.MeshStandardMaterial({ color: 0x2e1c1c, roughness: 0.4, metalness: 0.5 }); 
         const eyeMat = new THREE.MeshStandardMaterial({ color: 0x220000, emissive: 0xff2222, emissiveIntensity: 2.2 });
 
         // --- Torso ---
         // Slight forward tilt (rotation.x) reads as an aggressive hunch/
         // lunge -- a cheap way to visually differentiate this from the
         // upright Shooter without a different geometry budget.
-        const torsoGeo = new THREE.BoxGeometry(0.6, 0.7, 0.4);
+        const torsoGeo = new RoundedBoxGeometry(0.6, 0.7, 0.4, 2, 0.05);
         const torso = new THREE.Mesh(torsoGeo, bodyMat);
         torso.position.y = 0.85;
         torso.rotation.x = 0.18;
@@ -38,7 +39,7 @@ export class Grunt extends Enemy {
         enemyGroup.add(torso);
 
         // --- Head ---
-        const headGeo = new THREE.BoxGeometry(0.32, 0.3, 0.3);
+        const headGeo = new RoundedBoxGeometry(0.32, 0.3, 0.3, 2, 0.04);
         const head = new THREE.Mesh(headGeo, bodyMat);
         head.position.y = 0.35 + 0.13; // torso half-height + most of the head's half-height, small overlap
         head.castShadow = true;
@@ -53,7 +54,7 @@ export class Grunt extends Enemy {
         head.add(eye);
 
         // --- Arms (longer than the torso, ending in a clawed point) ---
-        const armGeo = new THREE.BoxGeometry(0.15, 0.55, 0.15);
+        const armGeo = new RoundedBoxGeometry(0.15, 0.55, 0.15, 2, 0.03);
         const leftArm = new THREE.Mesh(armGeo, bodyMat);
         leftArm.position.set(-0.38, 0.05, 0);
         leftArm.castShadow = true;
@@ -78,7 +79,7 @@ export class Grunt extends Enemy {
         rightArm.add(rightClaw);
 
         // --- Legs ---
-        const legGeo = new THREE.BoxGeometry(0.2, 0.5, 0.2);
+        const legGeo = new RoundedBoxGeometry(0.2, 0.5, 0.2, 2, 0.03);
         const leftLeg = new THREE.Mesh(legGeo, bodyMat);
         leftLeg.position.set(-0.14, 0.25, 0);
         leftLeg.castShadow = true;

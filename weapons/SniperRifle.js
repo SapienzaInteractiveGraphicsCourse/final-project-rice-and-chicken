@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import { Weapon } from './Weapon.js';
 
 // Flat silhouette for the weapon-select HUD -- same body language as
@@ -36,18 +37,18 @@ export class SniperRifle extends Weapon {
     createModel() {
         const gunGroup = new THREE.Group();
 
-        const metalMat = new THREE.MeshStandardMaterial({ color: 0x22221e, roughness: 0.4, metalness: 0.7 });
-        const scopeMat = new THREE.MeshStandardMaterial({ color: 0x111111, roughness: 0.3, metalness: 0.8 });
+        const metalMat = new THREE.MeshStandardMaterial({ color: 0x36352e, roughness: 0.4, metalness: 0.7 }); 
+        const scopeMat = new THREE.MeshStandardMaterial({ color: 0x232326, roughness: 0.3, metalness: 0.8 }); 
         const glowMat = new THREE.MeshStandardMaterial({ color: 0x330000, emissive: 0xff2200, emissiveIntensity: 2 });
 
         // --- Stock (longer than Rifle's, braces further back) ---
-        const stock = new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.12, 0.3), metalMat);
+        const stock = new THREE.Mesh(new RoundedBoxGeometry(0.09, 0.12, 0.3, 2, 0.015), metalMat);
         stock.position.set(0, -0.01, -0.3);
         stock.castShadow = true;
         gunGroup.add(stock);
 
         // --- Receiver ---
-        const receiver = new THREE.Mesh(new THREE.BoxGeometry(0.11, 0.13, 0.3), metalMat);
+        const receiver = new THREE.Mesh(new RoundedBoxGeometry(0.11, 0.13, 0.3, 2, 0.018), metalMat);
         receiver.position.set(0, 0, 0);
         receiver.castShadow = true;
         gunGroup.add(receiver);
@@ -75,7 +76,7 @@ export class SniperRifle extends Weapon {
         gunGroup.add(scope);
 
         // --- Grip ---
-        const grip = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.16, 0.08), metalMat);
+        const grip = new THREE.Mesh(new RoundedBoxGeometry(0.07, 0.16, 0.08, 2, 0.012), metalMat);
         grip.position.set(0, -0.13, -0.12);
         grip.rotation.x = -0.2;
         grip.castShadow = true;

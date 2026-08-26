@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import { Enemy } from './Enemy.js';
 
 // ============================================================
@@ -25,18 +26,18 @@ export class Shooter extends Enemy {
         const enemyGroup = new THREE.Group();
 
         const bodyMat = new THREE.MeshStandardMaterial({ color: 0x5b2f8a, roughness: 0.55, metalness: 0.35 });
-        const blasterMat = new THREE.MeshStandardMaterial({ color: 0x1a1a22, roughness: 0.4, metalness: 0.7 });
+        const blasterMat = new THREE.MeshStandardMaterial({ color: 0x2e2e3a, roughness: 0.4, metalness: 0.7 }); 
         const glowMat = new THREE.MeshStandardMaterial({ color: 0x220033, emissive: 0xbb44ff, emissiveIntensity: 2.2 });
 
         // --- Torso (upright -- no hunch, unlike Grunt) ---
-        const torsoGeo = new THREE.BoxGeometry(0.62, 0.85, 0.4);
+        const torsoGeo = new RoundedBoxGeometry(0.62, 0.85, 0.4, 2, 0.05);
         const torso = new THREE.Mesh(torsoGeo, bodyMat);
         torso.position.y = 0.275 + 0.425; // leg height (0.55, see below) half + torso half-height
         torso.castShadow = true;
         enemyGroup.add(torso);
 
         // --- Head ---
-        const headGeo = new THREE.BoxGeometry(0.34, 0.32, 0.32);
+        const headGeo = new RoundedBoxGeometry(0.34, 0.32, 0.32, 2, 0.04);
         const head = new THREE.Mesh(headGeo, bodyMat);
         head.position.y = 0.425 + 0.13;
         head.castShadow = true;
@@ -49,7 +50,7 @@ export class Shooter extends Enemy {
         head.add(visor);
 
         // --- Arms ---
-        const armGeo = new THREE.BoxGeometry(0.16, 0.6, 0.16);
+        const armGeo = new RoundedBoxGeometry(0.16, 0.6, 0.16, 2, 0.03);
         const leftArm = new THREE.Mesh(armGeo, bodyMat);
         leftArm.position.set(-0.39, 0.1, 0);
         leftArm.castShadow = true;
@@ -67,7 +68,7 @@ export class Shooter extends Enemy {
         // gun, plus a muzzle marker so onAttack() knows exactly where to
         // spawn bullets from.
         const blasterGroup = new THREE.Group();
-        const body = new THREE.Mesh(new THREE.BoxGeometry(0.13, 0.13, 0.32), blasterMat);
+        const body = new THREE.Mesh(new RoundedBoxGeometry(0.13, 0.13, 0.32, 2, 0.02), blasterMat);
         body.position.z = 0.14;
         body.castShadow = true;
         blasterGroup.add(body);
@@ -91,7 +92,7 @@ export class Shooter extends Enemy {
         rightArm.add(blasterGroup);
 
         // --- Legs ---
-        const legGeo = new THREE.BoxGeometry(0.22, 0.55, 0.22);
+        const legGeo = new RoundedBoxGeometry(0.22, 0.55, 0.22, 2, 0.03);
         const leftLeg = new THREE.Mesh(legGeo, bodyMat);
         leftLeg.position.set(-0.15, 0.275, 0);
         leftLeg.castShadow = true;

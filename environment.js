@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 
 // ============================================================
 // ENVIRONMENT
@@ -18,7 +19,7 @@ function createGridTexture() {
     canvas.height = size;
     const ctx = canvas.getContext('2d');
 
-    ctx.fillStyle = '#0a0a16';
+    ctx.fillStyle = '#1c2036'; 
     ctx.fillRect(0, 0, size, size);
 
     // Faint inner subdivision first, so the brighter cell border draws on top
@@ -44,7 +45,7 @@ function createGridTexture() {
 function createGround(scene) {
     const groundGeo = new THREE.PlaneGeometry(GROUND_HALF_SIZE * 2, GROUND_HALF_SIZE * 2);
     const groundMat = new THREE.MeshStandardMaterial({
-        color: 0x111122,
+        color: 0x2a2f4a, 
         roughness: 0.8,
         map: createGridTexture()
     });
@@ -57,7 +58,7 @@ function createGround(scene) {
 
 // Low wall ring right at the arena's actual boundary 
 function createPerimeterWalls(scene) {
-    const panelMat = new THREE.MeshStandardMaterial({ color: 0x15151f, roughness: 0.6, metalness: 0.4 });
+    const panelMat = new THREE.MeshStandardMaterial({ color: 0x2c2c3d, roughness: 0.6, metalness: 0.4 }); 
     const trimMat = new THREE.MeshStandardMaterial({ color: 0x003322, emissive: 0x00ffcc, emissiveIntensity: 1.4 });
 
     const wallHeight = 2.2;
@@ -94,7 +95,7 @@ function createPerimeterWalls(scene) {
 // collidesWithObstacle() in main.js) -- radius is a bit larger than the
 // pillar's own base (0.45) to leave room for the glow sphere on top.
 function createCornerBeacons(scene) {
-    const pillarMat = new THREE.MeshStandardMaterial({ color: 0x1a1a24, roughness: 0.5, metalness: 0.5 });
+    const pillarMat = new THREE.MeshStandardMaterial({ color: 0x33333f, roughness: 0.5, metalness: 0.5 });
     const glowMat = new THREE.MeshStandardMaterial({ color: 0x220000, emissive: 0xff3344, emissiveIntensity: 2.5 });
 
     const pillarHeight = 4.5;
@@ -132,7 +133,7 @@ function createCornerBeacons(scene) {
 // no matter which way the crate's random yaw rotation points its corners
 // (see collidesWithObstacle() in main.js).
 function createProps(scene) {
-    const crateMat = new THREE.MeshStandardMaterial({ color: 0x2a2a1a, roughness: 0.7, metalness: 0.2 });
+    const crateMat = new THREE.MeshStandardMaterial({ color: 0x4a4632, roughness: 0.7, metalness: 0.2 }); 
     const stripeMat = new THREE.MeshStandardMaterial({ color: 0x442200, emissive: 0xffaa00, emissiveIntensity: 1.2 });
 
     const cratePositions = [
@@ -144,7 +145,8 @@ function createProps(scene) {
     for (const [x, z] of cratePositions) {
         const size = 1.3 + Math.random() * 0.7;
 
-        const crate = new THREE.Mesh(new THREE.BoxGeometry(size, size, size), crateMat);
+     
+        const crate = new THREE.Mesh(new RoundedBoxGeometry(size, size, size, 2, size * 0.06), crateMat);
         crate.position.set(x, size / 2, z);
         crate.rotation.y = Math.random() * Math.PI;
         crate.castShadow = true;
@@ -163,16 +165,74 @@ function createProps(scene) {
     return obstacles;
 }
 
+const SKY_HORIZON_COLOR = 0x050510; // matches the fog color below so the ground fades seamlessly into the sky at the horizon
+
+// A large inverted sphere with a vertical gradient (dark navy near the
+// top, fading to the fog color at the horizon) instead of a flat
+// scene.background color, plus a scattering of distant points for
+// stars. Built from a custom GLSL shader rather than a downloaded
+// HDRI/skybox image
+function createSkybox(scene) {
+    const skyGeo = new THREE.SphereGeometry(400, 24, 16);
+    const skyMat = new THREE.ShaderMaterial({
+        side: THREE.BackSide,
+        fog: false, // this IS the backdrop -- it shouldn't fog itself out
+        uniforms: {
+            topColor: { value: new THREE.Color(0x0a1030) },
+            bottomColor: { value: new THREE.Color(SKY_HORIZON_COLOR) }
+        },
+        vertexShader: `
+            varying vec3 vWorldPosition;
+            void main() {
+                vec4 worldPosition = modelMatrix * vec4(position, 1.0);
+                vWorldPosition = worldPosition.xyz;
+                gl_Position = projectionMatrix * viewMatrix * worldPosition;
+            }
+        `,
+        fragmentShader: `
+            uniform vec3 topColor;
+            uniform vec3 bottomColor;
+            varying vec3 vWorldPosition;
+            void main() {
+                float h = normalize(vWorldPosition).y * 0.5 + 0.5;
+                gl_FragColor = vec4(mix(bottomColor, topColor, clamp(h, 0.0, 1.0)), 1.0);
+            }
+        `
+    });
+    scene.add(new THREE.Mesh(skyGeo, skyMat));
+
+    // Stars: random points on a shell around the arena, upper hemisphere
+    // only. fog:false for the same reason as the sky material -- at this
+    // distance the default fog-far (85) would otherwise wash every one
+    // of them out to the fog color, making them invisible.
+    const starCount = 800;
+    const positions = new Float32Array(starCount * 3);
+    for (let i = 0; i < starCount; i++) {
+        const radius = 350 + Math.random() * 40;
+        const theta = Math.random() * Math.PI * 2;
+        const phi = Math.acos(Math.random() * 2 - 1);
+        positions[i * 3] = radius * Math.sin(phi) * Math.cos(theta);
+        positions[i * 3 + 1] = Math.abs(radius * Math.cos(phi));
+        positions[i * 3 + 2] = radius * Math.sin(phi) * Math.sin(theta);
+    }
+    const starGeo = new THREE.BufferGeometry();
+    starGeo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    const starMat = new THREE.PointsMaterial({ color: 0xaaccff, size: 1.4, sizeAttenuation: false, fog: false });
+    scene.add(new THREE.Points(starGeo, starMat));
+}
+
 // Single entry point -- called once from init() (see main.js). Builds
-// the ground, walls, beacons and props, tints the scene with fog
-// matching the background color so the arena's far edges (and the void
-// beyond the walls) fade out softly instead of clipping abruptly, and
-// returns the collision circles main.js needs to keep the player from
-// walking through the beacons/crates (the perimeter walls don't need
-// one of their own -- they sit just past the existing movement clamp in
-// updateGame(), see WALL_DISTANCE above, so the player never reaches them).
+// the skybox, ground, walls, beacons and props, tints the scene with
+// fog matching the sky's horizon color so the arena's far edges (and
+// the void beyond the walls) fade out seamlessly instead of clipping
+// abruptly, and returns the collision circles main.js needs to keep the
+// player from walking through the beacons/crates (the perimeter walls
+// don't need one of their own -- they sit just past the existing
+// movement clamp in updateGame(), see WALL_DISTANCE above, so the
+// player never reaches them).
 export function createEnvironment(scene) {
-    scene.fog = new THREE.Fog(0x050510, 30, 85);
+    scene.fog = new THREE.Fog(SKY_HORIZON_COLOR, 30, 85);
+    createSkybox(scene);
     createGround(scene);
     createPerimeterWalls(scene);
     const beaconObstacles = createCornerBeacons(scene);

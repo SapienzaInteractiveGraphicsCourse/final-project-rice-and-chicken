@@ -36,7 +36,7 @@ export class ArmorPickup extends PowerUp {
         });
         geo.center();
 
-        const mat = new THREE.MeshStandardMaterial({ color: 0x001a33, emissive: BLUE, emissiveIntensity: 2.2 });
+        const mat = new THREE.MeshStandardMaterial({ color: 0x0d2b45, emissive: BLUE, emissiveIntensity: 2.2 }); 
         return new THREE.Mesh(geo, mat);
     }
 }

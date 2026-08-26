@@ -9,6 +9,13 @@ import { HealthPickup } from './powerups/HealthPickup.js';
 import { SmallArmorPickup } from './powerups/SmallArmorPickup.js';
 import { LargeArmorPickup } from './powerups/LargeArmorPickup.js';
 import { StrengthPickup } from './powerups/StrengthPickup.js';
+import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
+import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
+import { BrightnessContrastShader } from 'three/addons/shaders/BrightnessContrastShader.js';
+import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 
 // ============================================================
 // GLOBAL VARIABLES
@@ -21,6 +28,11 @@ let scene, camera, renderer;   // The 3 core Three.js pieces:
                                 //   scene    = the 3D world (holds all objects)
                                 //   camera   = the "eye" that looks at the scene
                                 //   renderer = draws the scene+camera onto the <canvas>
+
+// Post-processing pipeline (see init()'s "Post-processing" section and
+// animate()) -- bloomPass is kept as its own reference so onWindowResize()
+// can keep its internal render targets sized to match the canvas.
+let composer, bloomPass;
 
 let player;                    // Reference to the object we'll move/interact with
 
@@ -241,14 +253,15 @@ function createPlayer(playerClass) {
     // --- Torso ---
     // Height stays such that the bottom still sits at y=0.6, so the
     // legs below don't need to change length.
-    const torsoGeo = new THREE.BoxGeometry(0.7, 0.9, 0.45); // width, height, depth
+    // RoundedBoxGeometry instead of a flat BoxGeometry 
+    const torsoGeo = new RoundedBoxGeometry(0.7, 0.9, 0.45, 2, 0.06); // width, height, depth, segments, radius
     const torso = new THREE.Mesh(torsoGeo, materials.torso);
     torso.position.y = 1.05; // half-height (0.45) above the legs' top (0.6) -> 1.05
     torso.castShadow = true;
     playerGroup.add(torso);
 
     // --- Head ---
-    const headGeo = new THREE.BoxGeometry(0.46, 0.42, 0.42);
+    const headGeo = new RoundedBoxGeometry(0.46, 0.42, 0.42, 2, 0.05);
     const head = new THREE.Mesh(headGeo, materials.head);
     head.position.y = 0.62; // torso half-height (0.45) + half the head's height, small overlap = no visible gap/neck seam
     head.castShadow = true;
@@ -269,7 +282,7 @@ function createPlayer(playerClass) {
     // no matter which way the player is facing).
     // Positioned on the -Z side because that's the model's local "back"
     // (rotation.y = 0 means facing +Z, see updateGame's atan2 logic).
-    const backpackGeo = new THREE.BoxGeometry(0.45, 0.5, 0.2);
+    const backpackGeo = new RoundedBoxGeometry(0.45, 0.5, 0.2, 2, 0.04);
     const backpack = new THREE.Mesh(backpackGeo, materials.backpack);
     backpack.position.set(0, 0.05, -(0.225 + 0.1)); // just behind the torso's back face, no z-fighting overlap
     backpack.castShadow = true;
@@ -285,7 +298,7 @@ function createPlayer(playerClass) {
     torso.add(chestCore);
 
     // --- Arms ---
-    const armGeo = new THREE.BoxGeometry(0.18, 0.7, 0.18);
+    const armGeo = new RoundedBoxGeometry(0.18, 0.7, 0.18, 2, 0.035);
 
     const leftArm = new THREE.Mesh(armGeo, materials.arm);
     leftArm.position.set(-0.44, 0.15, 0); // relative to torso: left side, near shoulder height
@@ -302,7 +315,7 @@ function createPlayer(playerClass) {
     // of the TORSO (not the arm): a rigid shoulder plate that stays put
     // rather than swinging through the walk-cycle arm rotation reads more
     // like actual shoulder armor than a sleeve patch would.
-    const pauldronGeo = new THREE.BoxGeometry(0.28, 0.16, 0.28);
+    const pauldronGeo = new RoundedBoxGeometry(0.28, 0.16, 0.28, 2, 0.04);
     const leftPauldron = new THREE.Mesh(pauldronGeo, materials.trim);
     leftPauldron.position.set(-0.44, 0.47, 0); // arm top is around local y=0.5 (0.15 origin + 0.35 half-height)
     leftPauldron.castShadow = true;
@@ -329,7 +342,7 @@ function createPlayer(playerClass) {
     // Added as children of playerGroup (not torso): the torso still
     // sits with its bottom at y=0.6, so the legs fill the gap from
     // the ground (y=0) up to that point -> height 0.6, centered at y=0.3.
-    const legGeo = new THREE.BoxGeometry(0.25, 0.6, 0.25);
+    const legGeo = new RoundedBoxGeometry(0.25, 0.6, 0.25, 2, 0.04);
 
     const leftLeg = new THREE.Mesh(legGeo, materials.leg);
     leftLeg.position.set(-0.16, 0.3, 0);
@@ -345,7 +358,7 @@ function createPlayer(playerClass) {
     // Small trim accent at the bottom of each leg. Children of the LEG
     // (not playerGroup), so they inherit the walk-cycle swing correctly
     // and read as part of the boot rather than floating separately.
-    const bootGeo = new THREE.BoxGeometry(0.27, 0.14, 0.29);
+    const bootGeo = new RoundedBoxGeometry(0.27, 0.14, 0.29, 2, 0.035);
     const leftBoot = new THREE.Mesh(bootGeo, materials.trim);
     leftBoot.position.set(0, -0.3 + 0.07, 0.02); // leg bottom is at local y=-0.3 (half-height); slight forward toe offset
     leftBoot.castShadow = true;
@@ -589,8 +602,10 @@ function updateMenuPreview(deltaTime) {
 function init() {
 
     // --- Scene setup ---
+    // No flat background color -- environment.js's createEnvironment()
+    // adds a gradient skybox + starfield mesh that fills this role instead
+    // (see createSkybox() there).
     scene = new THREE.Scene();
-    scene.background = new THREE.Color(0x050510); 
 
     // --- Camera setup ---
     // PerspectiveCamera(fov, aspectRatio, near, far)
@@ -603,23 +618,79 @@ function init() {
     renderer = new THREE.WebGLRenderer({ antialias: true }); // antialias = smoother edges
     renderer.setSize(window.innerWidth, window.innerHeight);
     renderer.shadowMap.enabled = true; // turns on shadow rendering globally
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap; // softer shadow edges than the default hard-edged PCF
+    // ACES Filmic: highlights roll off smoothly instead of clipping to
+    // solid white. 
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 1.35;
+    renderer.outputColorSpace = THREE.SRGBColorSpace;
     document.body.appendChild(renderer.domElement); // add the <canvas> to the page
 
     // --- Lights ---
-    // AmbientLight: uniform light with no direction, no shadows.
-    // Simulates indirect/bounced light so shadowed areas aren't pure black.
-    const ambientLight = new THREE.AmbientLight(0xffffff, 0.4); // color, intensity
-    scene.add(ambientLight);
+    // HemisphereLight: like AmbientLight, but blends a "sky" color and a
+    // "ground" color based on each surface's normal 
+    const hemiLight = new THREE.HemisphereLight(0x44598a, 0x3a3228, 0.6);
+    scene.add(hemiLight);
 
-    // DirectionalLight: parallel rays, like sunlight. Has a direction
-    // (from its position toward the origin/target) and CAN cast shadows.
-    const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
-    dirLight.position.set(20, 40, 20);
+    // DirectionalLight: parallel rays, like sunlight (here, a cold
+    // moonlight-ish blue tint to match the sci-fi/night arena mood). Has
+    // a direction (from its position toward the origin/target) and CAN
+    // cast shadows.
+    const dirLight = new THREE.DirectionalLight(0xccddff, 1.0);
+    dirLight.position.set(25, 45, 15);
     dirLight.castShadow = true;
     // Shadow map resolution: higher = sharper shadows but more GPU cost
     dirLight.shadow.mapSize.width = 2048;
     dirLight.shadow.mapSize.height = 2048;
+    // The default shadow-camera frustum is only +/-5 units across --
+    // fine for a tiny demo scene, but this arena is ~54 units wide, so
+    // almost everything would fall outside it and simply not cast a
+    // shadow at all. Widened to cover the whole playable area (see
+    // WALL_DISTANCE in environment.js) plus some margin.
+    dirLight.shadow.camera.left = -32;
+    dirLight.shadow.camera.right = 32;
+    dirLight.shadow.camera.top = 32;
+    dirLight.shadow.camera.bottom = -32;
+    dirLight.shadow.camera.far = 100;
+    dirLight.shadow.bias = -0.0015; // the much larger frustum above needs a bit of bias to avoid shadow-acne artifacts
     scene.add(dirLight);
+
+    // Cool, low-intensity point light from the opposite side of the main
+    // directional light 
+    const fillLight = new THREE.PointLight(0x0088ff, 0.4, 60);
+    fillLight.position.set(-18, 10, -18);
+    scene.add(fillLight);
+
+    // --- Post-processing ---
+    // Runs the rendered frame through extra passes instead of drawing
+    // straight to the screen (see animate()).
+    composer = new EffectComposer(renderer);
+    composer.addPass(new RenderPass(scene, camera));
+
+    // UnrealBloomPass finds pixels brighter than `threshold` and blurs a
+    // glowing halo around them -- since nearly every sci-fi accent here
+    // (visors, chest cores, weapon glow, power-ups, boss eyes, beacons)
+    // is already an emissive material, this turns them from "flat bright
+    // color" into an actual glow. Threshold is kept high and strength
+    // moderate on purpose 
+    bloomPass = new UnrealBloomPass(
+        new THREE.Vector2(window.innerWidth, window.innerHeight),
+        0.2, // strength
+        0.4,  // radius
+        0.8   // threshold 
+    );
+    composer.addPass(bloomPass);
+    composer.addPass(new OutputPass()); // converts the linear result back to display color space/tone mapping after bloom
+
+    // Small brightness/contrast lift, applied AFTER OutputPass so it's
+    // grading the final display-space image (like a light photo edit)
+    // rather than the raw linear render. Contrast is kept lower than
+    // earlier attempts -- ACES already does its own filmic contrast
+    // shaping, so this is just a small extra push, not compensation.
+    const contrastPass = new ShaderPass(BrightnessContrastShader);
+    contrastPass.uniforms.brightness.value = 0.04;
+    contrastPass.uniforms.contrast.value = 0.08;
+    composer.addPass(contrastPass);
 
     // --- Environment ---
     // Ground, perimeter walls, corner beacons, crate props, and fog --
@@ -1506,6 +1577,7 @@ function onWindowResize() {
     camera.aspect = window.innerWidth / window.innerHeight;
     camera.updateProjectionMatrix(); // must be called after changing aspect
     renderer.setSize(window.innerWidth, window.innerHeight);
+    composer.setSize(window.innerWidth, window.innerHeight); // keep the post-processing render targets matched to the new canvas size
 }
 
 // ============================================================
@@ -1531,7 +1603,7 @@ function animate() {
     // else: gameStarted && gamePaused -- render the frozen scene as-is,
     // no updates (see the pointerlockchange listener in init())
 
-    renderer.render(scene, camera); // actually draw everything to the canvas
+    composer.render(); // draw the scene through the post-processing pipeline (bloom, etc.) 
 }
 
 // Fire it up: build the scene once, wire up the menu, then start the loop

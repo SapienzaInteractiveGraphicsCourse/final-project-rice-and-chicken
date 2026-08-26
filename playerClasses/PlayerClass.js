@@ -58,7 +58,7 @@ export class PlayerClass {
         const headColor = new THREE.Color(this.headColor);
         // Trim (pauldrons/boots) reuses the backpack tint, darkened, so it
         // reads as a separate darker armor piece rather than matching gear.
-        const trimColor = new THREE.Color(this.backpackColor).multiplyScalar(0.6);
+        const trimColor = new THREE.Color(this.backpackColor).multiplyScalar(0.75);
 
         // repeat = [x, y] UV tiling -- tuned per part so the plate/seam
         // scale in the photo looks like a similar physical size across the
@@ -103,9 +103,9 @@ export class PlayerClass {
         // together and contrasts with the plated armor pieces above.
         const accentHex = '#' + new THREE.Color(this.bodyColor).lerp(new THREE.Color(0xffffff), 0.6).getHexString();
         materials.visor = new THREE.MeshStandardMaterial({
-            color: 0x050505,
+            color: 0x0a0a0a,
             emissive: new THREE.Color(accentHex),
-            emissiveIntensity: 1.4,
+            emissiveIntensity: 2.0, 
             roughness: 0.25,
             metalness: 0.6
         });

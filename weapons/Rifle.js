@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import { Weapon } from './Weapon.js';
 
 // Flat silhouette shown in the in-game weapon-select HUD (see
@@ -39,27 +40,31 @@ export class Rifle extends Weapon {
     createModel() {
         const gunGroup = new THREE.Group();
 
-        const metalMat = new THREE.MeshStandardMaterial({ color: 0x1a1a22, roughness: 0.35, metalness: 0.75 });
-        const metalMatLight = new THREE.MeshStandardMaterial({ color: 0x33333d, roughness: 0.4, metalness: 0.6 }); // slightly lighter, for the magazine
+        const metalMat = new THREE.MeshStandardMaterial({ color: 0x2e2e3a, roughness: 0.35, metalness: 0.75 }); 
+        const metalMatLight = new THREE.MeshStandardMaterial({ color: 0x45454f, roughness: 0.4, metalness: 0.6 }); 
         // Emissive strip = glows on its own regardless of scene lighting.
         // Color matches the player's teal accent, ties the weapon visually
         // to the character and hints at "sci-fi energy" tech.
         const glowMat = new THREE.MeshStandardMaterial({ color: 0x003322, emissive: 0x00ffcc, emissiveIntensity: 2 });
 
         // --- Stock (rear, braces against the shoulder) ---
-        const stock = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.11, 0.22), metalMat);
+        // RoundedBoxGeometry (chamfered edges) instead of a flat box on
+        // every major part below -- same width/height/depth/origin as a
+        // regular box, just softened corners so the gun doesn't read as
+        // stacked cardboard blocks.
+        const stock = new THREE.Mesh(new RoundedBoxGeometry(0.1, 0.11, 0.22, 2, 0.015), metalMat);
         stock.position.set(0, -0.01, -0.19); // slightly lower than the receiver, angled look without actual rotation
         stock.castShadow = true;
         gunGroup.add(stock);
 
         // --- Receiver (main body, houses the mechanism) ---
-        const receiver = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.14, 0.35), metalMat);
+        const receiver = new THREE.Mesh(new RoundedBoxGeometry(0.12, 0.14, 0.35, 2, 0.02), metalMat);
         receiver.position.set(0, 0, 0.1);
         receiver.castShadow = true;
         gunGroup.add(receiver);
 
         // --- Handguard (covers the rear part of the barrel) ---
-        const handguard = new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.09, 0.25), metalMatLight);
+        const handguard = new THREE.Mesh(new RoundedBoxGeometry(0.09, 0.09, 0.25, 2, 0.015), metalMatLight);
         handguard.position.set(0, -0.01, 0.4);
         handguard.castShadow = true;
         gunGroup.add(handguard);
@@ -87,14 +92,14 @@ export class Rifle extends Weapon {
         // down instead of hanging straight. We fake the curve cheaply with
         // a single rotated box rather than modeling an actual curved mesh --
         // reads correctly from a normal play-camera distance.
-        const magazine = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.28, 0.09), metalMatLight);
+        const magazine = new THREE.Mesh(new RoundedBoxGeometry(0.06, 0.28, 0.09, 2, 0.012), metalMatLight);
         magazine.position.set(0, -0.19, 0.08);
         magazine.rotation.x = 0.35; // tilts the bottom of the magazine forward
         magazine.castShadow = true;
         gunGroup.add(magazine);
 
         // --- Pistol grip ---
-        const grip = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.16, 0.08), metalMat);
+        const grip = new THREE.Mesh(new RoundedBoxGeometry(0.07, 0.16, 0.08, 2, 0.012), metalMat);
         grip.position.set(0, -0.13, -0.05);
         grip.rotation.x = -0.2; // angled back slightly, like a real grip
         grip.castShadow = true;

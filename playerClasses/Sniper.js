@@ -13,7 +13,7 @@ export class Sniper extends PlayerClass {
             name: 'Sniper',
             weapons: [new SniperRifle(), new Pistol()],
             bodyColor: 0x4a5a3a,
-            legColor: 0x333d2a,
+            legColor: 0x434f38,
             headColor: 0xcbbfa0
         });
     }

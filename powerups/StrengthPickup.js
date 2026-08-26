@@ -16,7 +16,7 @@ export class StrengthPickup extends PowerUp {
     }
 
     createIcon() {
-        const mat = new THREE.MeshStandardMaterial({ color: 0x331a00, emissive: ORANGE, emissiveIntensity: 2.4 });
+        const mat = new THREE.MeshStandardMaterial({ color: 0x452a10, emissive: ORANGE, emissiveIntensity: 2.4 }); 
         const icon = new THREE.Group();
 
         // Upper arm, angled down-and-out from the "shoulder" at the top
