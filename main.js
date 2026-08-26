@@ -34,6 +34,13 @@ let scene, camera, renderer;   // The 3 core Three.js pieces:
 // can keep its internal render targets sized to match the canvas.
 let composer, bloomPass;
 
+// Fill light that follows the camera every frame (see updateCamera())
+// instead of sitting at a fixed world position, so whichever side of
+// the player/enemies the camera is currently looking at always gets a
+// bit of light, regardless of where in the arena they are relative to
+// the fixed DirectionalLight.
+let cameraFillLight;
+
 let player;                    // Reference to the object we'll move/interact with
 
 // Collision circles for the environment's beacons/crates (see
@@ -592,6 +599,7 @@ function updateMenuPreview(deltaTime) {
 
     camera.position.set(0, 1.3, 4.5);
     camera.lookAt(0, 1.0, 0);
+    cameraFillLight.position.copy(camera.position); // keeps the menu preview's character consistently lit too, same reasoning as updateCamera()
 }
 
 
@@ -660,6 +668,14 @@ function init() {
     const fillLight = new THREE.PointLight(0x0088ff, 0.4, 60);
     fillLight.position.set(-18, 10, -18);
     scene.add(fillLight);
+
+    // A second fill light that isn't fixed in place -- see updateCamera(),
+    // which keeps it glued to the camera every frame. Neutral white and
+    // fairly soft/short-range: it's there to keep the side of the
+    // character/enemies the player is actually LOOKING AT from going
+    // completely dark, not to relight the whole arena.
+    cameraFillLight = new THREE.PointLight(0xffffff, 0.6, 14);
+    scene.add(cameraFillLight);
 
     // --- Post-processing ---
     // Runs the rendered frame through extra passes instead of drawing
@@ -1570,6 +1586,16 @@ function updateCamera() {
         player.position.z + offsetZ
     );
     camera.lookAt(player.position.x, player.position.y + 0.9, player.position.z); // aim slightly above the feet, roughly chest height
+
+    // Camera-following fill light: the scene's one shadow-casting
+    // DirectionalLight always lights the same world-space side of
+    // whatever it hits, so as the player walks/turns around the arena,
+    // the side facing away from it goes dark regardless of which side
+    // the camera happens to be looking at. Keeping a light glued to the
+    // camera's own position guarantees the side the PLAYER actually sees
+    // is always reasonably lit, no matter where they are or which way
+    // they're facing.
+    cameraFillLight.position.copy(camera.position);
 }
 
 // Keeps the rendering correct (no stretching) if the browser window changes size
