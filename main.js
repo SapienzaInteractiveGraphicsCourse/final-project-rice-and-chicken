@@ -5,6 +5,10 @@ import { Grunt } from './enemies/Grunt.js';
 import { Shooter } from './enemies/Shooter.js';
 import { Boss } from './enemies/Boss.js';
 import { createEnvironment } from './environment.js';
+import { HealthPickup } from './powerups/HealthPickup.js';
+import { SmallArmorPickup } from './powerups/SmallArmorPickup.js';
+import { LargeArmorPickup } from './powerups/LargeArmorPickup.js';
+import { StrengthPickup } from './powerups/StrengthPickup.js';
 
 // ============================================================
 // GLOBAL VARIABLES
@@ -74,6 +78,12 @@ let shotCooldown = 0;          // counts down to 0, then the player can fire aga
 // below). Built once in init(), repositioned every frame in updateGame().
 let aimBeam, aimMarker;
 
+// Glowing rings around the player's feet, shown only while the
+// strength buff (see powerups/StrengthPickup.js) is active. Built once
+// in init(), repositioned/animated every frame in updateGame() via
+// updateStrengthAura().
+let strengthAura;
+
 // --- Enemies ---
 // Every enemy currently alive in the arena (see enemies/Enemy.js and its
 // subclasses). Same idea as `bullets` below -- Three.js doesn't track
@@ -112,6 +122,43 @@ let boss = null;                 // the current Boss instance, only set during w
 // --- Player health ---
 const playerMaxHealth = 100;
 let playerHealth = playerMaxHealth;
+
+// --- Player armor ---
+// A second, separate pool that absorbs incoming damage before health
+// does (see damagePlayer()) -- starts empty, only filled up by armor
+// power-ups (see powerups/ArmorPickup.js), unlike health which starts full.
+const playerMaxArmor = 100;
+let playerArmor = 0;
+
+// --- Strength buff ---
+// Temporary damage + move-speed boost from StrengthPickup (see
+// powerups/StrengthPickup.js) -- counts down every frame in updateGame()
+// once active; shootBullet() and updateGame()'s own speed calculation
+// both just check "is this timer > 0" rather than needing their own
+// separate on/off flag.
+let strengthBuffTimer = 0;
+const strengthBuffDuration = 15;   // seconds
+const strengthDamageMultiplier = 1.6;
+const strengthSpeedMultiplier = 1.3;
+
+// --- Power-ups ---
+// Every power-up currently sitting in the arena, waiting to be picked
+// up (see powerups/PowerUp.js and its subclasses). Same "our own array,
+// Three.js doesn't know what a power-up is" idea as bullets/enemies.
+let powerUps = [];
+let powerUpSpawnTimer = 0;
+const powerUpSpawnInterval = 6;   // seconds between spawn ATTEMPTS -- not every attempt succeeds, see maxPowerUpsOnField
+const maxPowerUpsOnField = 8;     // hard cap so the arena never gets cluttered with pickups
+// Weighted random pick (see spawnPowerUp()) -- health and small armor
+// are common, the full armor refill and the strength buff are rarer,
+// so different power-up TYPES effectively spawn at different rates
+// even though they all share one spawn timer.
+const powerUpTypes = [
+    { Type: HealthPickup, weight: 4 },
+    { Type: SmallArmorPickup, weight: 4 },
+    { Type: LargeArmorPickup, weight: 1.5 },
+    { Type: StrengthPickup, weight: 2 }
+];
 
 // --- Player classes ---
 // Every loadout the player can play as (see playerClasses/PlayerClass.js
@@ -395,6 +442,10 @@ const uiOverlayEl = document.getElementById('ui-overlay');
 const hudBottomRightEl = document.getElementById('hud-bottom-right');
 const healthFillEl = document.getElementById('health-bar-fill');
 const healthValueEl = document.getElementById('health-value');
+const armorFillEl = document.getElementById('armor-bar-fill');
+const armorValueEl = document.getElementById('armor-value');
+const strengthBuffLineEl = document.getElementById('strength-buff-line');
+const strengthBuffTimerEl = document.getElementById('strength-buff-timer');
 const gameOverEl = document.getElementById('game-over');
 const pauseMenuEl = document.getElementById('pause-menu');
 const victoryScreenEl = document.getElementById('victory-screen');
@@ -455,7 +506,14 @@ function initMenu() {
         waveTransitioning = false;
         bossBarContainerEl.classList.add('hidden');
         waveBannerEl.classList.remove('visible');
+        playerArmor = 0;
+        strengthBuffTimer = 0;
+        strengthBuffLineEl.classList.add('hidden');
+        powerUps.forEach((p) => scene.remove(p.group));
+        powerUps = [];
+        powerUpSpawnTimer = 3; // small head start before the first pickup can appear
         updateHealthUI();
+        updateArmorUI();
         updateWeaponSelectorUI();
         startWave(1);
         gamePaused = false;
@@ -464,6 +522,7 @@ function initMenu() {
         victoryScreenEl.classList.add('hidden');
         aimBeam.visible = true;
         aimMarker.visible = true;
+        strengthAura.visible = false; // only turned on again once a strength pickup is actually collected
 
         gameStarted = true;
         menuEl.classList.add('hidden');
@@ -576,6 +635,7 @@ function init() {
     scene.add(player);
 
     createAimIndicator();
+    createStrengthAura();
 
     updateCamera(); // position the camera correctly before the first frame renders
 
@@ -670,17 +730,18 @@ function handleKeyboard(event, isKeyDown) {
     }
 }
 
-// True if a point at (x, z) -- with the player's own collision radius
-// added on top -- would overlap any environment obstacle (beacons,
-// crates, see environment.js). Used by updateGame() to keep the player
-// from walking through them; same flat distance-check style as the
-// bullet/enemy hit tests elsewhere, just against static circles instead
-// of moving ones.
-function collidesWithObstacle(x, z) {
+// True if a point at (x, z) -- with `entityRadius` added on top -- would
+// overlap any environment obstacle (beacons, crates, see environment.js).
+// Used to keep both the player (updateGame(), with playerCollisionRadius)
+// and every enemy (updateEnemies()'s attackContext.checkObstacle, with
+// that enemy's own hitRadius) from walking through them; same flat
+// distance-check style as the bullet/enemy hit tests elsewhere, just
+// against static circles instead of moving ones.
+function collidesWithObstacle(x, z, entityRadius) {
     for (const obstacle of environmentObstacles) {
         const dx = x - obstacle.x;
         const dz = z - obstacle.z;
-        if (Math.hypot(dx, dz) < obstacle.radius + playerCollisionRadius) return true;
+        if (Math.hypot(dx, dz) < obstacle.radius + entityRadius) return true;
     }
     return false;
 }
@@ -717,8 +778,9 @@ function updateGame(deltaTime) {
 
     // Multiplying by deltaTime (seconds since last frame) means movement
     // is measured in "units per second", not "units per frame" —
-    // so speed stays consistent no matter the frame rate.
-    const currentSpeed = baseSpeed * deltaTime;
+    // so speed stays consistent no matter the frame rate. The strength
+    // buff (see powerups/StrengthPickup.js) temporarily speeds this up.
+    const currentSpeed = baseSpeed * (strengthBuffTimer > 0 ? strengthSpeedMultiplier : 1) * deltaTime;
 
     // Arena boundary: player can't walk past +/- 24 on X or Z
     const limit = 24;
@@ -732,10 +794,10 @@ function updateGame(deltaTime) {
     // along one axis only cancels movement along that axis, so moving
     // diagonally into the corner of a crate slides you along its edge
     // instead of just stopping dead.
-    if (nextX > -limit && nextX < limit && !collidesWithObstacle(nextX, player.position.z)) {
+    if (nextX > -limit && nextX < limit && !collidesWithObstacle(nextX, player.position.z, playerCollisionRadius)) {
         player.position.x = nextX;
     }
-    if (nextZ > -limit && nextZ < limit && !collidesWithObstacle(player.position.x, nextZ)) {
+    if (nextZ > -limit && nextZ < limit && !collidesWithObstacle(player.position.x, nextZ, playerCollisionRadius)) {
         player.position.z = nextZ;
     }
 
@@ -828,6 +890,15 @@ function updateGame(deltaTime) {
 
     updateAimIndicator(deltaTime); // redraw the aim beam/marker for wherever the next shot would actually go
 
+    // --- Strength buff countdown ---
+    if (strengthBuffTimer > 0) {
+        strengthBuffTimer = Math.max(0, strengthBuffTimer - deltaTime);
+        strengthBuffLineEl.classList.remove('hidden');
+        strengthBuffTimerEl.textContent = Math.ceil(strengthBuffTimer);
+        if (strengthBuffTimer === 0) strengthBuffLineEl.classList.add('hidden');
+    }
+    updateStrengthAura(deltaTime);
+
     updateCamera(); // keep camera locked to the player every frame
 }
 
@@ -909,6 +980,8 @@ function animateWalk(isMoving, deltaTime, walkDirSign = 1) {
 function shootBullet() {
     const weapon = player.userData.playerClass.weapons[currentWeaponIndex];
     const bulletEntry = weapon.shoot(scene, player.userData.muzzle, cameraYaw);
+    // Strength buff (see powerups/StrengthPickup.js) temporarily hits harder.
+    if (strengthBuffTimer > 0) bulletEntry.damage = Math.round(bulletEntry.damage * strengthDamageMultiplier);
     bullets.push(bulletEntry);
 }
 
@@ -1028,6 +1101,45 @@ function updateAimIndicator(deltaTime) {
 }
 
 // ============================================================
+// STRENGTH AURA
+// Purely cosmetic feedback for the strength power-up buff (see
+// powerups/StrengthPickup.js) -- two glowing rings around the player's
+// feet, spinning in opposite directions, visible only while the buff
+// timer is running.
+// ============================================================
+function createStrengthAura() {
+    strengthAura = new THREE.Group();
+
+    const ringMat1 = new THREE.MeshStandardMaterial({
+        color: 0x331a00, emissive: 0xff8800, emissiveIntensity: 2.2,
+        transparent: true, opacity: 0.6, side: THREE.DoubleSide
+    });
+    const ring1 = new THREE.Mesh(new THREE.TorusGeometry(0.7, 0.035, 8, 24), ringMat1);
+    ring1.rotation.x = Math.PI / 2;
+    strengthAura.add(ring1);
+
+    const ringMat2 = ringMat1.clone();
+    const ring2 = new THREE.Mesh(new THREE.TorusGeometry(0.5, 0.03, 8, 24), ringMat2);
+    ring2.rotation.x = Math.PI / 2.3;
+    strengthAura.add(ring2);
+
+    strengthAura.visible = false; // only shown while the buff is active -- see updateStrengthAura()
+    scene.add(strengthAura);
+}
+
+// Called every frame from updateGame(). Follows the player's position
+// (including jump height) and keeps both rings spinning; visibility is
+// just a direct reflection of whether the buff timer is still running.
+function updateStrengthAura(deltaTime) {
+    strengthAura.visible = strengthBuffTimer > 0;
+    if (!strengthAura.visible) return;
+
+    strengthAura.position.set(player.position.x, player.position.y + 0.1, player.position.z);
+    strengthAura.children[0].rotation.z += deltaTime * 1.8;
+    strengthAura.children[1].rotation.z -= deltaTime * 2.4;
+}
+
+// ============================================================
 // ENEMIES / WAVES
 // Spawning, AI update, both directions of bullet collision (player
 // bullets vs. enemies, enemy bullets vs. the player), and the 10-wave
@@ -1143,6 +1255,7 @@ function updateEnemies(deltaTime) {
         dealDamageToPlayer: damagePlayer,
         spawnEnemyBullet: (entry) => enemyBullets.push(entry),
         playerPosition: player.position,
+        checkObstacle: collidesWithObstacle, // lets Enemy.update() (enemies/Enemy.js) avoid crates/pillars, same check the player's own movement uses
         scene
     };
 
@@ -1205,12 +1318,27 @@ function updateEnemyBullets(deltaTime) {
 }
 
 // ============================================================
-// PLAYER HEALTH
+// PLAYER HEALTH / ARMOR
+// Armor is a second pool that soaks up damage BEFORE health does --
+// any amount left over after armor is depleted spills onto health, in
+// the same hit. See powerups/ArmorPickup.js for how armor gets filled.
 // ============================================================
 function damagePlayer(amount) {
     if (playerHealth <= 0) return; // already dead -- ignore further hits until the page reloads (see triggerGameOver())
-    playerHealth = Math.max(0, playerHealth - amount);
-    updateHealthUI();
+
+    let remaining = amount;
+    if (playerArmor > 0) {
+        const absorbed = Math.min(playerArmor, remaining);
+        playerArmor -= absorbed;
+        remaining -= absorbed;
+        updateArmorUI();
+    }
+
+    if (remaining > 0) {
+        playerHealth = Math.max(0, playerHealth - remaining);
+        updateHealthUI();
+    }
+
     if (playerHealth <= 0) triggerGameOver();
 }
 
@@ -1220,6 +1348,100 @@ function updateHealthUI() {
     healthValueEl.textContent = Math.ceil(playerHealth);
     // Shifts green -> yellow -> red as health drops
     healthFillEl.style.backgroundColor = pct > 0.5 ? '#00ffcc' : pct > 0.25 ? '#ffcc00' : '#ff3344';
+}
+
+function updateArmorUI() {
+    const pct = playerArmor / playerMaxArmor;
+    armorFillEl.style.width = `${pct * 100}%`;
+    armorValueEl.textContent = Math.ceil(playerArmor);
+}
+
+// ============================================================
+// POWER-UPS
+// Spawning (weighted-random type, capped concurrent count), floating/
+// spinning animation, and pickup-by-proximity all live here. See
+// powerups/PowerUp.js and its subclasses.
+// ============================================================
+
+// Weighted random pick from powerUpTypes (see the globals above) --
+// higher weight = more likely, but every type can still show up any
+// time there's room on the field.
+function pickWeightedPowerUpType() {
+    const total = powerUpTypes.reduce((sum, entry) => sum + entry.weight, 0);
+    let r = Math.random() * total;
+    for (const entry of powerUpTypes) {
+        if (r < entry.weight) return entry.Type;
+        r -= entry.weight;
+    }
+    return powerUpTypes[powerUpTypes.length - 1].Type; // floating-point fallback, practically never hit
+}
+
+// Finds a random spot inside the arena that isn't inside a crate/beacon
+// (reuses the same obstacle check the player's own movement uses, see
+// collidesWithObstacle() above updateGame()) -- a few retries are enough
+// since obstacles only cover a small fraction of the arena's area; the
+// fallback (dead center) is only ever reached if every attempt is
+// unlucky enough to land inside something, which is exceedingly rare.
+function findPowerUpSpawnPosition() {
+    for (let attempt = 0; attempt < 8; attempt++) {
+        const x = (Math.random() * 2 - 1) * 20;
+        const z = (Math.random() * 2 - 1) * 20;
+        if (!collidesWithObstacle(x, z, 0.5)) return { x, z };
+    }
+    return { x: 0, z: 0 };
+}
+
+function spawnPowerUp() {
+    if (powerUps.length >= maxPowerUpsOnField) return;
+
+    const Type = pickWeightedPowerUpType();
+    const powerUp = new Type();
+    const { x, z } = findPowerUpSpawnPosition();
+    powerUp.group.position.x = x;
+    powerUp.group.position.z = z;
+
+    scene.add(powerUp.group);
+    powerUps.push(powerUp);
+}
+
+// Runs every frame: handles the spawn timer, animates every power-up
+// currently on the field (see PowerUp.update()), and picks up any that
+// the player is standing close enough to.
+function updatePowerUps(deltaTime) {
+    powerUpSpawnTimer -= deltaTime;
+    if (powerUpSpawnTimer <= 0) {
+        spawnPowerUp();
+        powerUpSpawnTimer = powerUpSpawnInterval;
+    }
+
+    // Built fresh every frame and handed to whichever power-up gets
+    // picked up (see PowerUp.apply()) -- same "generic hook + context
+    // object" pattern as enemies' attackContext above.
+    const pickupContext = {
+        healToFull: () => { playerHealth = playerMaxHealth; updateHealthUI(); },
+        addArmor: (amount) => { playerArmor = Math.min(playerMaxArmor, playerArmor + amount); updateArmorUI(); },
+        armorToFull: () => { playerArmor = playerMaxArmor; updateArmorUI(); },
+        activateStrengthBuff: () => { strengthBuffTimer = strengthBuffDuration; }
+    };
+
+    for (let i = powerUps.length - 1; i >= 0; i--) {
+        const powerUp = powerUps[i];
+        powerUp.update(deltaTime);
+
+        if (powerUp.isExpired()) {
+            scene.remove(powerUp.group);
+            powerUps.splice(i, 1);
+            continue;
+        }
+
+        const dx = player.position.x - powerUp.group.position.x;
+        const dz = player.position.z - powerUp.group.position.z;
+        if (Math.hypot(dx, dz) < powerUp.pickupRadius) {
+            powerUp.apply(pickupContext);
+            scene.remove(powerUp.group);
+            powerUps.splice(i, 1);
+        }
+    }
 }
 
 // Freezes gameplay, releases the pointer lock (so the cursor + RESTART
@@ -1238,6 +1460,7 @@ function triggerGameOver() {
     bossBarContainerEl.classList.add('hidden');
     aimBeam.visible = false;
     aimMarker.visible = false;
+    strengthAura.visible = false;
     gameOverEl.classList.remove('hidden');
 }
 
@@ -1254,6 +1477,7 @@ function triggerVictory() {
     bossBarContainerEl.classList.add('hidden');
     aimBeam.visible = false;
     aimMarker.visible = false;
+    strengthAura.visible = false;
     victoryScreenEl.classList.remove('hidden');
 }
 
@@ -1300,6 +1524,7 @@ function animate() {
         updateBullets(deltaTime); // move active bullets, remove expired ones
         updateEnemies(deltaTime); // spawn/move/attack enemies, check player bullets against them
         updateEnemyBullets(deltaTime); // move enemy bullets, check them against the player
+        updatePowerUps(deltaTime); // spawn/animate power-ups, pick up any the player is standing on
     } else if (!gameStarted) {
         updateMenuPreview(deltaTime); // idle turntable + camera framing behind the main menu
     }

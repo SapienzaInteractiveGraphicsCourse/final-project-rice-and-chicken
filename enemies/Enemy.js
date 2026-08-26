@@ -53,8 +53,10 @@ export class Enemy {
     }
 
     // Runs every frame for every live enemy (see updateEnemies() in
-    // main.js): moves toward the player until within attackRange, always
-    // faces the player, and triggers onAttack() on cooldown once in range.
+    // main.js): moves toward the player until within attackRange (steering
+    // around crates/pillars via attackContext.checkObstacle(), see below),
+    // always faces the player, and triggers onAttack() on cooldown once
+    // in range.
     update(deltaTime, playerPosition, attackContext) {
         const toPlayer = new THREE.Vector3().subVectors(playerPosition, this.mesh.position);
         toPlayer.y = 0; // stay on the ground plane -- ignore the player's jump height
@@ -63,7 +65,23 @@ export class Enemy {
 
         if (isMoving) {
             toPlayer.normalize();
-            this.mesh.position.addScaledVector(toPlayer, this.speed * deltaTime);
+            const moveX = toPlayer.x * this.speed * deltaTime;
+            const moveZ = toPlayer.z * this.speed * deltaTime;
+            const nextX = this.mesh.position.x + moveX;
+            const nextZ = this.mesh.position.z + moveZ;
+
+            // Same per-axis sliding resolution the player's own movement
+            // uses (see updateGame() in main.js): checked separately per
+            // axis so bumping into a crate/pillar along one axis doesn't
+            // also cancel movement along the other -- lets an enemy slide
+            // along an obstacle's edge instead of just stopping dead
+            // against it. checkObstacle() is main.js's collidesWithObstacle().
+            if (!attackContext.checkObstacle(nextX, this.mesh.position.z, this.hitRadius)) {
+                this.mesh.position.x = nextX;
+            }
+            if (!attackContext.checkObstacle(this.mesh.position.x, nextZ, this.hitRadius)) {
+                this.mesh.position.z = nextZ;
+            }
         }
 
         // Same "front = (sin(yaw), cos(yaw))" convention used everywhere

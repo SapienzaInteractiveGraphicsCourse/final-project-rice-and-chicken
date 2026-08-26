@@ -22,6 +22,18 @@ body {
     text-shadow: 0 0 5px #00ffcc;
 }
 
+/* Shown only while the strength power-up buff is active (see
+   updateGame() in main.js) -- orange to match the pickup's own glow
+   color (see powerups/StrengthPickup.js). */
+#strength-buff-line {
+    color: #ff8800;
+    text-shadow: 0 0 6px #ff8800;
+}
+
+#strength-buff-line.hidden {
+    display: none;
+}
+
 /* ============================================================
    WAVE BANNER
    Transient top-center announcement ("WAVE 3", "WAVE 3 CLEARED",
@@ -120,6 +132,49 @@ body {
     font-family: 'Courier New', Courier, monospace;
     z-index: 5;
     pointer-events: none;
+}
+
+/* Armor row -- same layout as #health-row just below, blue-themed
+   (matches the armor power-ups, see powerups/ArmorPickup.js) instead
+   of teal so the two bars are never confused at a glance. Sits ABOVE
+   the health row (see index.html) since armor is what absorbs damage
+   FIRST (see damagePlayer() in main.js). */
+#armor-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    width: 100%;
+}
+
+.armor-icon {
+    width: 20px;
+    height: 20px;
+    flex-shrink: 0;
+    color: #3399ff;
+    filter: drop-shadow(0 0 4px rgba(51, 153, 255, 0.7));
+}
+
+#armor-bar-container {
+    flex: 1;
+    height: 14px;
+    border: 2px solid #3399ff;
+    background: rgba(0, 10, 20, 0.5);
+    box-shadow: 0 0 8px rgba(51, 153, 255, 0.3);
+}
+
+#armor-bar-fill {
+    height: 100%;
+    width: 0%; /* starts empty -- armor only fills up via power-ups, see main.js */
+    background: #3399ff;
+    transition: width 0.2s ease;
+}
+
+#armor-value {
+    min-width: 2.4em;
+    text-align: right;
+    color: #3399ff;
+    text-shadow: 0 0 5px #3399ff;
+    font-weight: bold;
 }
 
 #health-row {

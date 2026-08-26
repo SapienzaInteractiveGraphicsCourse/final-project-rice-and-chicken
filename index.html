@@ -18,6 +18,7 @@
         <p>WAVE: <span id="wave-value">1</span> / <span id="wave-total">10</span></p>
         <p>MOVE: W, A, S, D / Arrows</p>
         <p>SHIFT DIMENSION: [TAB] (Coming soon)</p>
+        <p id="strength-buff-line" class="hidden">STRENGTH BOOST: <span id="strength-buff-timer">15</span>s</p>
     </div>
 
     <div id="wave-banner"></div>
@@ -30,6 +31,16 @@
     </div>
 
     <div id="hud-bottom-right">
+        <div id="armor-row">
+            <svg class="armor-icon" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" fill="currentColor">
+                <path d="M12 2 L20 5 V11 C20 16.5 16.5 20.5 12 22 C7.5 20.5 4 16.5 4 11 V5 Z"/>
+            </svg>
+            <div id="armor-bar-container">
+                <div id="armor-bar-fill"></div>
+            </div>
+            <span id="armor-value">0</span>
+        </div>
+
         <div id="health-row">
             <svg class="health-icon" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" fill="currentColor">
                 <path d="M9 2h6v7h7v6h-7v7H9v-7H2V9h7V2z"/>
