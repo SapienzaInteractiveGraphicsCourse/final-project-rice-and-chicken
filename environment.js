@@ -199,7 +199,8 @@ function createSkybox(scene) {
             }
         `
     });
-    scene.add(new THREE.Mesh(skyGeo, skyMat));
+    const sky = new THREE.Mesh(skyGeo, skyMat);
+    scene.add(sky);
 
     // Stars: random points on a shell around the arena, upper hemisphere
     // only. fog:false for the same reason as the sky material -- at this
@@ -218,7 +219,10 @@ function createSkybox(scene) {
     const starGeo = new THREE.BufferGeometry();
     starGeo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
     const starMat = new THREE.PointsMaterial({ color: 0xaaccff, size: 1.4, sizeAttenuation: false, fog: false });
-    scene.add(new THREE.Points(starGeo, starMat));
+    const stars = new THREE.Points(starGeo, starMat);
+    scene.add(stars);
+
+    return { sky, stars };
 }
 
 // Single entry point -- called once from init() (see main.js). Builds
@@ -232,10 +236,14 @@ function createSkybox(scene) {
 // player never reaches them).
 export function createEnvironment(scene) {
     scene.fog = new THREE.Fog(SKY_HORIZON_COLOR, 30, 85);
-    createSkybox(scene);
+    const { sky, stars } = createSkybox(scene);
     createGround(scene);
     createPerimeterWalls(scene);
     const beaconObstacles = createCornerBeacons(scene);
     const crateObstacles = createProps(scene);
-    return { obstacles: [...beaconObstacles, ...crateObstacles] };
+    // sky/stars are handed back so main.js can pass them to
+    // dimensionShift.js -- Dimension Shift repaints them for its
+    // day/night look instead of just the per-mesh material swap that
+    // handles everything else in the scene (see initDimensionShift()).
+    return { obstacles: [...beaconObstacles, ...crateObstacles], sky, stars };
 }

@@ -13,11 +13,15 @@ const LIFETIME = 16; // seconds on the field before despawning uncollected -- se
 const WARNING_TIME = 3; // last few seconds: blink instead of just vanishing without notice
 
 export class PowerUp {
-    constructor({ name, glowColor, shellScale = 1 }) {
+    constructor({ name, glowColor, shellScale = 1, requiresToon = false }) {
         this.name = name;
         this.glowColor = glowColor;
         this.pickupRadius = 1.0; // used by main.js's distance check against the player
         this.lifetime = LIFETIME; // main.js removes this power-up once aliveTime passes this
+        // True only for DimensionCachePickup -- see updatePowerUps() in
+        // main.js, which hides (and blocks collecting) any power-up with
+        // this flag set unless the player is currently in Toon dimension.
+        this.requiresToon = requiresToon;
 
         this.baseY = 0.9; // float height above the ground
         this.bobPhase = Math.random() * Math.PI * 2; // stagger the bob cycle so pickups don't all bounce in sync

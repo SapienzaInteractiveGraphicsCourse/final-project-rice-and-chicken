@@ -15,6 +15,12 @@ import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js'
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
 import { BrightnessContrastShader } from 'three/addons/shaders/BrightnessContrastShader.js';
+import { RenderPixelatedPass } from 'three/addons/postprocessing/RenderPixelatedPass.js';
+import {
+    initDimensionShift, toggleDimensionShift, syncSceneToCurrentDimension,
+    updateDimensionShiftTimers, resetDimensionShift, getDimensionShiftStatus, isToonDimension
+} from './dimensionShift.js';
+import { DimensionCachePickup } from './powerups/DimensionCachePickup.js';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 
 // ============================================================
@@ -160,6 +166,12 @@ const strengthBuffDuration = 15;   // seconds
 const strengthDamageMultiplier = 1.6;
 const strengthSpeedMultiplier = 1.3;
 
+// Dimension Shift's "weak point" hook (see updateEnemies() below): every
+// enemy takes bonus damage while the player is in Toon dimension, giving
+// the timed shift window (see dimensionShift.js) a real combat reason to
+// use, on top of revealing DimensionCachePickup.
+const TOON_DAMAGE_MULTIPLIER = 1.5;
+
 // --- Power-ups ---
 // Every power-up currently sitting in the arena, waiting to be picked
 // up (see powerups/PowerUp.js and its subclasses). Same "our own array,
@@ -176,7 +188,11 @@ const powerUpTypes = [
     { Type: HealthPickup, weight: 4 },
     { Type: SmallArmorPickup, weight: 4 },
     { Type: LargeArmorPickup, weight: 1.5 },
-    { Type: StrengthPickup, weight: 2 }
+    { Type: StrengthPickup, weight: 2 },
+    // Spawns like any other type, but sits invisible/uncollectable until
+    // the player shifts to Toon dimension -- see requiresToon in
+    // powerups/PowerUp.js and the visibility gate in updatePowerUps().
+    { Type: DimensionCachePickup, weight: 1.5 }
 ];
 
 // --- Player classes ---
@@ -473,6 +489,9 @@ const waveValueEl = document.getElementById('wave-value');
 const waveTotalEl = document.getElementById('wave-total');
 waveTotalEl.textContent = totalWaves; // static -- set once, matches waveSizes.length + the boss wave
 const waveBannerEl = document.getElementById('wave-banner');
+const dimensionValueEl = document.getElementById('dimension-value');
+const dimensionStatusEl = document.getElementById('dimension-status');
+const dimensionFlashEl = document.getElementById('dimension-flash');
 const bossBarContainerEl = document.getElementById('boss-bar-container');
 const bossNameEl = document.getElementById('boss-name');
 const bossHealthFillEl = document.getElementById('boss-health-fill');
@@ -532,6 +551,8 @@ function initMenu() {
         powerUps.forEach((p) => scene.remove(p.group));
         powerUps = [];
         powerUpSpawnTimer = 3; // small head start before the first pickup can appear
+        resetDimensionShift(); // a fresh run always starts in realistic mode, off cooldown
+        dimensionValueEl.textContent = 'REALISTIC';
         updateHealthUI();
         updateArmorUI();
         updateWeaponSelectorUI();
@@ -681,7 +702,21 @@ function init() {
     // Runs the rendered frame through extra passes instead of drawing
     // straight to the screen (see animate()).
     composer = new EffectComposer(renderer);
-    composer.addPass(new RenderPass(scene, camera));
+    const renderPass = new RenderPass(scene, camera);
+    composer.addPass(renderPass);
+
+    // Dimension Shift's "toon" look: pixelated render + thick black ink
+    // outlines (from normal/depth discontinuities), built into this one
+    // pass -- exactly the "comic book" read Dimension Shift needs, with
+    // no custom shader of our own. Starts disabled: realistic mode (the
+    // plain renderPass above) is the default -- see toggleDimensionShift()
+    // in dimensionShift.js, which flips `.enabled` on both in lockstep.
+    const pixelatedPass = new RenderPixelatedPass(5, scene, camera, {
+        normalEdgeStrength: 0.6,
+        depthEdgeStrength: 0.6
+    });
+    pixelatedPass.enabled = false;
+    composer.addPass(pixelatedPass);
 
     // UnrealBloomPass finds pixels brighter than `threshold` and blurs a
     // glowing halo around them -- since nearly every sci-fi accent here
@@ -715,7 +750,8 @@ function init() {
     // beacons'/crates' collision circles, checked against every frame in
     // updateGame() (see collidesWithObstacle() below) so the player can't
     // just walk through them.
-    environmentObstacles = createEnvironment(scene).obstacles;
+    const environment = createEnvironment(scene);
+    environmentObstacles = environment.obstacles;
 
     // --- Player ---
     player = createPlayer(playerClasses[currentClassIndex]);
@@ -723,6 +759,17 @@ function init() {
 
     createAimIndicator();
     createStrengthAura();
+
+    // Hands Dimension Shift every scene-level reference it needs (see
+    // dimensionShift.js) that ISN'T just a mesh material -- lights, sky,
+    // stars, fog, which render pass is active. Everything else (every
+    // object's own material) is derived automatically per-mesh instead.
+    initDimensionShift({
+        renderer, bloomPass, renderPass, pixelatedPass,
+        hemiLight, dirLight,
+        sky: environment.sky, stars: environment.stars,
+        fog: scene.fog
+    });
 
     updateCamera(); // position the camera correctly before the first frame renders
 
@@ -791,6 +838,49 @@ function init() {
 }
 
 // ============================================================
+// DIMENSION SHIFT (see dimensionShift.js for the actual material/
+// renderer swap) -- this wrapper just also drives the couple of pieces
+// that are main.js's own responsibility: the HUD label and the
+// full-screen flash cue.
+// ============================================================
+function toggleDimension() {
+    const { success, isToonMode } = toggleDimensionShift();
+
+    if (!success) {
+        // Still on cooldown from the last shift -- a denial flash on the
+        // HUD label instead of the normal full-screen one, so it's clear
+        // the press did NOT go through.
+        dimensionValueEl.classList.remove('denied');
+        void dimensionValueEl.offsetWidth;
+        dimensionValueEl.classList.add('denied');
+        return;
+    }
+
+    dimensionValueEl.textContent = isToonMode ? 'TOON' : 'REALISTIC';
+
+    // Restarts the CSS flash animation even if triggered again mid-fade
+    // (removing then re-adding the class doesn't restart a CSS animation
+    // on its own -- forcing a reflow in between does).
+    dimensionFlashEl.classList.remove('flash');
+    void dimensionFlashEl.offsetWidth;
+    dimensionFlashEl.classList.add('flash');
+}
+
+// Runs every frame during active gameplay (see updateGame() below):
+// keeps the HUD's dimension line honest about what's actually happening
+// -- time left in Toon mode, or time left before it's available again.
+function updateDimensionHUD() {
+    const { isToonMode, toonTimer, cooldownTimer } = getDimensionShiftStatus();
+    if (isToonMode) {
+        dimensionStatusEl.textContent = `— ${Math.ceil(toonTimer)}s left`;
+    } else if (cooldownTimer > 0) {
+        dimensionStatusEl.textContent = `— ready in ${Math.ceil(cooldownTimer)}s`;
+    } else {
+        dimensionStatusEl.textContent = '— [TAB] to shift';
+    }
+}
+
+// ============================================================
 // INPUT HANDLING
 // Called every time a key is pressed or released.
 // Just updates our `keys` tracking object — actual movement
@@ -807,6 +897,14 @@ function handleKeyboard(event, isKeyDown) {
     // Class switching is a pre-game loadout choice, not a mid-run mechanic
     // -- gated to the menu just like the menu's own prev/next arrows
     if (key === 'c' && isKeyDown && !gameStarted) switchPlayerClass((currentClassIndex + 1) % playerClasses.length);
+    if (key === 'tab') {
+        event.preventDefault(); // stop the browser from shifting focus to the next element
+        // Gated to an active run -- its timers only tick inside
+        // updateGame() (see updateDimensionShiftTimers()), so allowing it
+        // from the menu/pause would let you "enter toon mode" with a
+        // timer that never actually counts down.
+        if (isKeyDown && !event.repeat && gameStarted) toggleDimension();
+    }
     if (key === ' ') {
         event.preventDefault(); // stop the browser from scrolling the page on spacebar
         // event.repeat is true when the browser auto-fires keydown while
@@ -985,6 +1083,10 @@ function updateGame(deltaTime) {
         if (strengthBuffTimer === 0) strengthBuffLineEl.classList.add('hidden');
     }
     updateStrengthAura(deltaTime);
+
+    // --- Dimension Shift timers ---
+    updateDimensionShiftTimers(deltaTime); // counts down the active Toon window / the post-Toon cooldown, auto-reverting when the window runs out
+    updateDimensionHUD();
 
     updateCamera(); // keep camera locked to the player every frame
 }
@@ -1359,7 +1461,9 @@ function updateEnemies(deltaTime) {
                 scene.remove(b.mesh);
                 bullets.splice(j, 1);
 
-                if (enemy.takeDamage(b.damage)) {
+                // Dimension Shift's "weak point" bonus -- see TOON_DAMAGE_MULTIPLIER above.
+                const damage = isToonDimension() ? b.damage * TOON_DAMAGE_MULTIPLIER : b.damage;
+                if (enemy.takeDamage(damage)) {
                     scene.remove(enemy.mesh);
                     enemies.splice(i, 1);
                     waveEnemiesRemaining--;
@@ -1521,6 +1625,15 @@ function updatePowerUps(deltaTime) {
             continue;
         }
 
+        // Dimension-locked pickups (see requiresToon in powerups/PowerUp.js,
+        // powerups/DimensionCachePickup.js): invisible AND uncollectable
+        // outside Toon dimension -- overrides whatever update() just
+        // decided about the despawn-warning blink.
+        if (powerUp.requiresToon && !isToonDimension()) {
+            powerUp.group.visible = false;
+            continue;
+        }
+
         const dx = player.position.x - powerUp.group.position.x;
         const dz = player.position.z - powerUp.group.position.z;
         if (Math.hypot(dx, dz) < powerUp.pickupRadius) {
@@ -1629,7 +1742,14 @@ function animate() {
     // else: gameStarted && gamePaused -- render the frozen scene as-is,
     // no updates (see the pointerlockchange listener in init())
 
-    composer.render(); // draw the scene through the post-processing pipeline (bloom, etc.) 
+    // Re-applies whichever dimension (realistic/toon) is currently
+    // active to every mesh in the scene -- unconditional and every
+    // frame so anything spawned mid-toon-mode (a new bullet, enemy,
+    // power-up) gets converted automatically instead of appearing in
+    // the wrong style (see dimensionShift.js).
+    syncSceneToCurrentDimension(scene);
+
+    composer.render(); // draw the scene through the post-processing pipeline (bloom, etc.)
 }
 
 // Fire it up: build the scene once, wire up the menu, then start the loop
