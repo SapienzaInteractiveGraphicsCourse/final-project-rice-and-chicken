@@ -62,6 +62,14 @@ body {
     text-shadow: 0 0 5px #00ffcc;
 }
 
+/* Dev-only wave-skip hint (see devSkipWave() in main.js) -- dimmer and
+   smaller than the rest of the HUD, a quiet aside rather than something
+   presented as a real gameplay control. */
+.dev-hint {
+    opacity: 0.5;
+    font-size: 0.8em;
+}
+
 /* Shown only while the strength power-up buff is active (see
    updateGame() in main.js) -- orange to match the pickup's own glow
    color (see powerups/StrengthPickup.js). */
@@ -379,61 +387,88 @@ body {
 }
 
 /* ============================================================
-   VICTORY SCREEN
-   Same fixed full-screen overlay pattern as #game-over, but gold
-   instead of red/teal -- shown by triggerVictory() in main.js once the
-   wave 10 boss (DOOMHORN) is defeated. PLAY AGAIN just reloads the
-   page, same reasoning as restart-button.
+   VICTORY BANNER
+   Deliberately NOT a full-screen overlay -- triggerVictory() in main.js
+   (once the wave 10 boss, DOOMHORN, is defeated) leaves the player
+   standing right where they won, in the arena, and just drops this
+   banner in over the top for a few seconds before auto-reloading back
+   to the main menu (see VICTORY_DISPLAY_TIME in main.js) -- no button
+   to press. Same gold theme the old full-screen version used.
    ============================================================ */
-#victory-screen {
+#victory-banner {
     position: fixed;
-    inset: 0;
+    top: 10vh;
+    left: 50%;
+    transform: translateX(-50%);
     z-index: 20;
     display: flex;
     flex-direction: column;
     align-items: center;
-    justify-content: center;
-    gap: 48px;
-    background: rgba(20, 16, 0, 0.75);
-}
-
-#victory-screen.hidden {
-    display: none;
-}
-
-.victory-title {
-    font-family: 'Orbitron', sans-serif;
-    font-weight: 900;
-    font-size: clamp(2.4rem, 7vw, 4.5rem);
-    letter-spacing: 0.25em;
-    color: #ffd700;
-    text-shadow: 0 0 15px rgba(255, 215, 0, 0.8), 0 0 40px rgba(255, 215, 0, 0.4);
-    margin: 0;
+    gap: 0.25em;
     text-align: center;
+    pointer-events: none;
+    opacity: 0;
 }
 
-.victory-button {
-    padding: 18px 64px;
+#victory-banner.visible {
+    animation: victoryBannerIn 0.7s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+}
+
+/* Soft pulsing radial glow behind the text -- purely atmospheric, sits
+   behind everything via z-index and is sized/positioned relative to the
+   banner container above (position: fixed on it is a valid containing
+   block for this). */
+.victory-glow {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 140%;
+    aspect-ratio: 1;
+    transform: translate(-50%, -50%);
+    background: radial-gradient(circle, rgba(255, 215, 0, 0.35) 0%, rgba(255, 215, 0, 0) 70%);
+    z-index: -1;
+    animation: victoryGlowPulse 2.4s ease-in-out infinite;
+}
+
+.victory-main {
     font-family: 'Orbitron', sans-serif;
     font-weight: 900;
-    font-size: 1.6rem;
+    font-size: clamp(3rem, 8vw, 6rem);
     letter-spacing: 0.3em;
-    color: #1a1400;
-    background: linear-gradient(180deg, #ffd700, #b8860b);
-    border: none;
-    cursor: pointer;
-    clip-path: polygon(16px 0, 100% 0, 100% calc(100% - 16px), calc(100% - 16px) 100%, 0 100%, 0 16px);
-    box-shadow: 0 0 20px rgba(255, 215, 0, 0.65), 0 0 60px rgba(255, 215, 0, 0.3);
-    transition: transform 0.15s, box-shadow 0.15s;
+    /* Animated gold gradient sweeping across the text, same shimmer
+       trick as the main menu's pixel-art title (see .title-pixel) --
+       reads as far more "premium"/alive than a flat gold fill. */
+    background: linear-gradient(90deg, #b8860b, #fff6c8, #ffd700, #fff6c8, #b8860b);
+    background-size: 300% auto;
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+    text-shadow: 0 0 30px rgba(255, 215, 0, 0.6);
+    animation: victoryShimmer 3s linear infinite;
 }
 
-.victory-button:hover {
-    transform: scale(1.06);
-    box-shadow: 0 0 30px rgba(255, 215, 0, 0.85), 0 0 90px rgba(255, 215, 0, 0.5);
+.victory-sub {
+    font-family: 'Orbitron', sans-serif;
+    font-weight: 700;
+    font-size: clamp(0.9rem, 2vw, 1.3rem);
+    letter-spacing: 0.4em;
+    color: #fff2c0;
+    text-shadow: 0 0 10px rgba(255, 215, 0, 0.6);
 }
 
-.victory-button:active {
-    transform: scale(0.97);
+@keyframes victoryBannerIn {
+    0% { opacity: 0; transform: translateX(-50%) translateY(-40px) scale(0.7); }
+    100% { opacity: 1; transform: translateX(-50%) translateY(0) scale(1); }
+}
+
+@keyframes victoryGlowPulse {
+    0%, 100% { opacity: 0.55; transform: translate(-50%, -50%) scale(0.9); }
+    50% { opacity: 1; transform: translate(-50%, -50%) scale(1.15); }
+}
+
+@keyframes victoryShimmer {
+    0% { background-position: 0% center; }
+    100% { background-position: 300% center; }
 }
 
 /* ============================================================

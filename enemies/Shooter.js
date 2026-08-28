@@ -111,13 +111,15 @@ export class Shooter extends Enemy {
         return enemyGroup;
     }
 
-    // Ranged: spawns a bullet aimed at wherever the player currently is,
-    // from the blaster's muzzle world position.
+    // Ranged: spawns a bullet aimed at a PREDICTED player position (see
+    // Enemy.leadTarget()) instead of wherever they currently are, from
+    // the blaster's muzzle world position.
     onAttack(context) {
         const spawnPos = new THREE.Vector3();
         this.muzzle.getWorldPosition(spawnPos);
 
-        const direction = new THREE.Vector3().subVectors(context.playerPosition, spawnPos);
+        const aimPoint = this.leadTarget(context, spawnPos, this.bulletSpeed);
+        const direction = new THREE.Vector3().subVectors(aimPoint, spawnPos);
         direction.y = 0;
         direction.normalize();
 

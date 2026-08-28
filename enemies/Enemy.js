@@ -1,5 +1,14 @@
 import * as THREE from 'three';
 
+// Matches the player's own movement clamp (see updateGame() in main.js)
+// -- enemies weren't ever bound by it before (they normally converge
+// toward the player, who's already inside it, so it never came up), but
+// the retreat/kiting behavior below (see retreatRange) can walk an
+// enemy straight through the arena's perimeter wall without this, since
+// the walls themselves aren't registered obstacles (the player's own
+// boundary clamp is what actually keeps things inside them).
+const ARENA_LIMIT = 24;
+
 // ============================================================
 // ENEMY (base class)
 // Same pattern as Weapon.js / PlayerClass.js: everything enemies have
@@ -14,7 +23,7 @@ import * as THREE from 'three';
 // construction 
 // ============================================================
 export class Enemy {
-    constructor({ health, speed, damage, attackRange, attackCooldown, hitRadius }) {
+    constructor({ health, speed, damage, attackRange, attackCooldown, hitRadius, moveRadius, retreatRange = 0 }) {
         this.maxHealth = health;
         this.health = health;
         this.speed = speed;             // units per second while chasing
@@ -22,7 +31,31 @@ export class Enemy {
         this.attackRange = attackRange; // stops closing the distance once within this
         this.attackCooldown = attackCooldown;
         this.attackTimer = 0;           // counts down; attacks again once <= 0
-        this.hitRadius = hitRadius;     // used by main.js for bullet-hit distance checks
+        this.hitRadius = hitRadius;     // used by main.js for bullet-hit distance checks -- how big a target this enemy is for incoming bullets
+        // How much clearance this enemy needs from obstacles while
+        // MOVING (see update()) -- defaults to hitRadius, which is fine
+        // for every normal-sized enemy, but a visually huge one (see
+        // Boss.js, which quadruples its own model scale) needs this set
+        // much smaller than its bullet-hit radius: otherwise its own
+        // oversized "personal space" reads almost every obstacle in the
+        // arena as blocking, and it can never actually get close enough
+        // to stop and attack.
+        this.moveRadius = moveRadius ?? hitRadius;
+        // 0 = never retreats (stands its ground and strafes once in
+        // range, like Grunt/Shooter/Brute). Kiting enemies (see
+        // Marksman.js) set this above 0: if the player closes to within
+        // this distance, the enemy backs away instead of strafing.
+        this.retreatRange = retreatRange;
+
+        // A fixed personal "flank" angle (see update()) -- makes a group
+        // of enemies fan out into a loose surround instead of all
+        // converging on the exact same point and queueing up in a
+        // single-file line behind each other.
+        this.flankAngle = (Math.random() - 0.5) * 1.3; // up to ~37° either side
+        // Which way this enemy strafes while stopped in attack range
+        // (see update()) -- fixed per enemy so a whole group doesn't
+        // drift in lockstep.
+        this.strafeSign = Math.random() < 0.5 ? 1 : -1;
 
         this.walkTime = 0;              // drives the walk-cycle sine wave, only advances while moving
 
@@ -56,7 +89,14 @@ export class Enemy {
     // main.js): moves toward the player until within attackRange (steering
     // around crates/pillars via attackContext.checkObstacle(), see below),
     // always faces the player, and triggers onAttack() on cooldown once
-    // in range.
+    // in range. A few things make this read as smarter than a plain
+    // beeline: the approach angle bends by this enemy's own flankAngle
+    // while still far off (so a group fans out into a surround instead
+    // of queueing up single-file), it steers around an obstacle it's
+    // about to walk straight into instead of just pushing against it,
+    // and it keeps strafing sideways (or backing away, for kiting
+    // enemies -- see retreatRange) once in range instead of just
+    // standing still.
     update(deltaTime, playerPosition, attackContext) {
         const toPlayer = new THREE.Vector3().subVectors(playerPosition, this.mesh.position);
         toPlayer.y = 0; // stay on the ground plane -- ignore the player's jump height
@@ -64,11 +104,36 @@ export class Enemy {
         const isMoving = distance > this.attackRange;
 
         if (isMoving) {
-            toPlayer.normalize();
-            const moveX = toPlayer.x * this.speed * deltaTime;
-            const moveZ = toPlayer.z * this.speed * deltaTime;
-            const nextX = this.mesh.position.x + moveX;
-            const nextZ = this.mesh.position.z + moveZ;
+            const moveDir = toPlayer.clone().normalize();
+
+            // Blend in this enemy's personal flank angle -- full effect
+            // while still far away, fading to zero as it nears
+            // attackRange so the final approach still converges cleanly
+            // instead of orbiting forever just out of reach.
+            const flankBlend = Math.min(1, Math.max(0, (distance - this.attackRange) / 8));
+            if (flankBlend > 0) {
+                moveDir.applyAxisAngle(new THREE.Vector3(0, 1, 0), this.flankAngle * flankBlend);
+            }
+
+            // Obstacle avoidance: the flank/slide tricks above only
+            // generate real sideways drift if the desired direction
+            // ALREADY has a sideways component -- an enemy walking
+            // straight at the player with a crate sitting exactly in
+            // between has almost none, and would otherwise just push
+            // against it forever. Sampling a point a bit ahead along the
+            // current path and, if it's blocked, steering hard to one
+            // side (this enemy's own fixed handedness, so the escape is
+            // smooth instead of flip-flopping frame to frame) fixes that
+            // regardless of approach angle.
+            const lookAhead = this.moveRadius + 1.4;
+            const aheadX = this.mesh.position.x + moveDir.x * lookAhead;
+            const aheadZ = this.mesh.position.z + moveDir.z * lookAhead;
+            if (attackContext.checkObstacle(aheadX, aheadZ, this.moveRadius)) {
+                moveDir.applyAxisAngle(new THREE.Vector3(0, 1, 0), this.strafeSign * (Math.PI / 2.2)); // ~82° -- steer hard around it
+            }
+
+            const nextX = this.mesh.position.x + moveDir.x * this.speed * deltaTime;
+            const nextZ = this.mesh.position.z + moveDir.z * this.speed * deltaTime;
 
             // Same per-axis sliding resolution the player's own movement
             // uses (see updateGame() in main.js): checked separately per
@@ -76,20 +141,45 @@ export class Enemy {
             // also cancel movement along the other -- lets an enemy slide
             // along an obstacle's edge instead of just stopping dead
             // against it. checkObstacle() is main.js's collidesWithObstacle().
-            if (!attackContext.checkObstacle(nextX, this.mesh.position.z, this.hitRadius)) {
-                this.mesh.position.x = nextX;
-            }
-            if (!attackContext.checkObstacle(this.mesh.position.x, nextZ, this.hitRadius)) {
-                this.mesh.position.z = nextZ;
-            }
+            // Also clamped to ARENA_LIMIT, same boundary the player's own
+            // movement respects.
+            const movedX = nextX > -ARENA_LIMIT && nextX < ARENA_LIMIT && !attackContext.checkObstacle(nextX, this.mesh.position.z, this.moveRadius);
+            if (movedX) this.mesh.position.x = nextX;
+            const movedZ = nextZ > -ARENA_LIMIT && nextZ < ARENA_LIMIT && !attackContext.checkObstacle(this.mesh.position.x, nextZ, this.moveRadius);
+            if (movedZ) this.mesh.position.z = nextZ;
+            if (!movedX && !movedZ) this.strafeSign *= -1; // fully stuck this frame 
+        } else {
+            // In range. Kiting enemies (retreatRange > 0, see Marksman.js)
+            // back away once the player gets too close instead of
+            // strafing; everyone else strafes sideways instead of
+            // standing dead still -- reads as far more alive/threatening,
+            // and makes it harder to land a clean shot either way. Flips
+            // direction if the step itself gets blocked (e.g. backed into
+            // a crate, or the arena's own boundary) rather than just
+            // freezing against it -- this ARENA_LIMIT clamp specifically
+            // is what stops a retreating enemy from backing straight
+            // through the (otherwise non-collidable) perimeter wall.
+            const isRetreating = this.retreatRange > 0 && distance < this.retreatRange;
+            const stepDir = isRetreating
+                ? toPlayer.clone().normalize().multiplyScalar(-1)
+                : new THREE.Vector3(-toPlayer.z, 0, toPlayer.x).normalize().multiplyScalar(this.strafeSign);
+            const stepSpeed = this.speed * 0.5;
+            const nextX = this.mesh.position.x + stepDir.x * stepSpeed * deltaTime;
+            const nextZ = this.mesh.position.z + stepDir.z * stepSpeed * deltaTime;
+
+            const movedX = nextX > -ARENA_LIMIT && nextX < ARENA_LIMIT && !attackContext.checkObstacle(nextX, this.mesh.position.z, this.moveRadius);
+            if (movedX) this.mesh.position.x = nextX;
+            const movedZ = nextZ > -ARENA_LIMIT && nextZ < ARENA_LIMIT && !attackContext.checkObstacle(this.mesh.position.x, nextZ, this.moveRadius);
+            if (movedZ) this.mesh.position.z = nextZ;
+            if (!movedX && !movedZ) this.strafeSign *= -1;
         }
 
         // Same "front = (sin(yaw), cos(yaw))" convention used everywhere
         // else in this project (see createPlayer() in main.js) -- always
-        // face the player, whether closing in or holding position to attack.
+        // face the player, whether closing in, strafing, or attacking.
         this.mesh.rotation.y = Math.atan2(toPlayer.x, toPlayer.z);
 
-        this.animateWalk(isMoving, deltaTime);
+        this.animateWalk(true, deltaTime); // strafing counts as "moving" too, for the walk-cycle
 
         this.attackTimer -= deltaTime;
         if (!isMoving && this.attackTimer <= 0) {
@@ -112,6 +202,22 @@ export class Enemy {
         if (this.rightLeg) this.rightLeg.rotation.x = -swing;
         if (this.leftArm) this.leftArm.rotation.x = -swing;
         if (this.rightArm) this.rightArm.rotation.x = swing;
+    }
+
+    // For ranged subclasses (see Shooter.js/Boss.js's onAttack()):
+    // returns a PREDICTED aim point instead of the player's exact
+    // current position -- their current velocity (see updateEnemies()
+    // in main.js) times how long a shot at `bulletSpeed` would actually
+    // take to cross the distance from `spawnPos`. Leading a moving
+    // target like this is what actually makes ranged enemies feel
+    // "smarter" instead of just spamming shots at where you used to be.
+    leadTarget(context, spawnPos, bulletSpeed) {
+        const target = context.playerPosition.clone();
+        if (context.playerVelocity) {
+            const travelTime = target.distanceTo(spawnPos) / bulletSpeed;
+            target.addScaledVector(context.playerVelocity, travelTime);
+        }
+        return target;
     }
 
     // Returns true once this hit has brought the enemy's health to 0 or

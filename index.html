@@ -21,9 +21,16 @@
         <p>MOVE: W, A, S, D / Arrows</p>
         <p>DIMENSION: <span id="dimension-value">REALISTIC</span> <span id="dimension-status">— [TAB] to shift</span></p>
         <p id="strength-buff-line" class="hidden">STRENGTH BOOST: <span id="strength-buff-timer">15</span>s</p>
+        <p class="dev-hint">[N] Skip wave (DEV)</p>
     </div>
 
     <div id="wave-banner"></div>
+
+    <div id="victory-banner">
+        <div class="victory-glow"></div>
+        <div class="victory-main">VICTORY</div>
+        <div class="victory-sub">DOOMHORN DEFEATED · ARENA CLEARED</div>
+    </div>
 
     <div id="boss-bar-container" class="hidden">
         <div id="boss-name"></div>
@@ -76,10 +83,6 @@
         <button id="restart-button" class="restart-button">RESTART</button>
     </div>
 
-    <div id="victory-screen" class="hidden">
-        <h1 class="victory-title">VICTORY</h1>
-        <button id="victory-button" class="victory-button">PLAY AGAIN</button>
-    </div>
 
     <div id="pause-menu" class="hidden">
         <h1 class="pause-title">PAUSED</h1>

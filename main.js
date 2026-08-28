@@ -3,6 +3,8 @@ import { Assault } from './playerClasses/Assault.js';
 import { Sniper } from './playerClasses/Sniper.js';
 import { Grunt } from './enemies/Grunt.js';
 import { Shooter } from './enemies/Shooter.js';
+import { Brute } from './enemies/Brute.js';
+import { Marksman } from './enemies/Marksman.js';
 import { Boss } from './enemies/Boss.js';
 import { createEnvironment } from './environment.js';
 import { HealthPickup } from './powerups/HealthPickup.js';
@@ -89,6 +91,13 @@ let gameStarted = false;
 // updates actually check gamePaused (see animate() below).
 let gamePaused = false;
 
+// True from the moment the boss dies until the auto-reload back to the
+// main menu (see triggerVictory()) -- freezes the game loop in place
+// (animate()) so the player stays standing right where they won,
+// instead of the game cutting to a separate screen.
+let victoryActive = false;
+const VICTORY_DISPLAY_TIME = 4.5; // seconds the "VICTORY" banner stays up before reloading back to the menu
+
 // Every bullet currently flying through the arena. Each entry is a
 // { mesh, velocity, age } object. We need our own array because
 // Three.js doesn't track "your game objects" for you -- the scene
@@ -125,8 +134,8 @@ let enemies = [];
 let enemyBullets = [];
 
 let enemySpawnTimer = 0;
-const enemySpawnInterval = 4;   // seconds between spawns
-const maxConcurrentEnemies = 8; // hard cap on how many can be alive AT ONCE, regardless of wave size -- paces out even a big wave instead of dumping it all in one place
+const enemySpawnInterval = 2.2;   // seconds between spawns -- was 4, arena was reading as empty/slow between fights
+const maxConcurrentEnemies = 14;  // hard cap on how many can be alive AT ONCE, regardless of wave size -- was 8, raised to actually let that faster spawn rate fill the arena instead of just queueing behind the cap
 const arenaSpawnRadius = 22;    // just inside the movement boundary (limit = 24 in updateGame())
 
 // --- Waves ---
@@ -134,7 +143,12 @@ const arenaSpawnRadius = 22;    // just inside the movement boundary (limit = 24
 // (DOOMHORN, see enemies/Boss.js) on wave 10 -- see startWave().
 // Enemy count per regular wave, tuned by hand rather than a formula so
 // the pacing is easy to eyeball/adjust; index 0 = wave 1 ... index 8 = wave 9.
-const waveSizes = [5, 6, 8, 9, 11, 12, 14, 15, 17];
+// Brute/Marksman
+// (see spawnEnemy() below) now take a slice of every wave's pool too,
+// and the whole point was to add them WITHOUT reducing how often
+// Grunt/Shooter actually show up, so the pool needs to be bigger to
+// have room for both.
+const waveSizes = [8, 11, 14, 17, 20, 22, 25, 28, 31];
 const totalWaves = waveSizes.length + 1; // + the boss wave
 let currentWave = 0;             // set for real by startWave(1) on PLAY
 let waveSpawnQueue = 0;          // enemies still waiting to be spawned this wave
@@ -241,6 +255,14 @@ const baseSpeed = 12; // units per second the player moves
 // Accumulates time only while the player is actually moving.
 // Used as input to Math.sin() to drive the walk-cycle animation below.
 let walkTime = 0;
+
+// Player velocity, recomputed every frame from how far position.js
+// actually moved since last frame (see updateEnemies() below) -- fed to
+// ranged enemies (Shooter/Boss) via attackContext.playerVelocity so
+// they can LEAD a moving target instead of aiming at where the player
+// used to be (see Enemy.leadTarget()).
+let previousPlayerPosition = new THREE.Vector3();
+let playerVelocity = new THREE.Vector3();
 
 
 // ============================================================
@@ -484,7 +506,7 @@ const strengthBuffLineEl = document.getElementById('strength-buff-line');
 const strengthBuffTimerEl = document.getElementById('strength-buff-timer');
 const gameOverEl = document.getElementById('game-over');
 const pauseMenuEl = document.getElementById('pause-menu');
-const victoryScreenEl = document.getElementById('victory-screen');
+const victoryBannerEl = document.getElementById('victory-banner');
 const waveValueEl = document.getElementById('wave-value');
 const waveTotalEl = document.getElementById('wave-total');
 waveTotalEl.textContent = totalWaves; // static -- set once, matches waveSizes.length + the boss wave
@@ -553,14 +575,17 @@ function initMenu() {
         powerUpSpawnTimer = 3; // small head start before the first pickup can appear
         resetDimensionShift(); // a fresh run always starts in realistic mode, off cooldown
         dimensionValueEl.textContent = 'REALISTIC';
+        previousPlayerPosition.copy(player.position);
+        playerVelocity.set(0, 0, 0);
         updateHealthUI();
         updateArmorUI();
         updateWeaponSelectorUI();
         startWave(1);
         gamePaused = false;
+        victoryActive = false;
         pauseMenuEl.classList.add('hidden');
         gameOverEl.classList.add('hidden');
-        victoryScreenEl.classList.add('hidden');
+        victoryBannerEl.classList.remove('visible');
         aimBeam.visible = true;
         aimMarker.visible = true;
         strengthAura.visible = false; // only turned on again once a strength pickup is actually collected
@@ -576,11 +601,6 @@ function initMenu() {
     // simpler and far less error-prone than hand-resetting every piece of
     // mutable state (player position/rotation, cooldowns, arrays...).
     document.getElementById('restart-button').addEventListener('click', () => {
-        location.reload();
-    });
-
-    // Victory's own way back in -- same reload-based reasoning as restart-button.
-    document.getElementById('victory-button').addEventListener('click', () => {
         location.reload();
     });
 
@@ -905,6 +925,9 @@ function handleKeyboard(event, isKeyDown) {
         // timer that never actually counts down.
         if (isKeyDown && !event.repeat && gameStarted) toggleDimension();
     }
+    // DEV key -- instantly clears the current wave so it's not necessary
+    // to actually fight through every one to test later waves/the boss.
+    if (key === 'n' && isKeyDown && !event.repeat && gameStarted) devSkipWave();
     if (key === ' ') {
         event.preventDefault(); // stop the browser from scrolling the page on spacebar
         // event.repeat is true when the browser auto-fires keydown while
@@ -1370,17 +1393,44 @@ function startWave(waveNumber) {
     }
 }
 
-// Picks a random enemy type and drops it at a random point on a ring
-// just inside the arena boundary, so enemies visibly walk in from the
-// edges instead of popping up next to the player. Stats scale up a
-// little every wave (see `scale` below) so later waves are tougher, not
-// just more crowded.
+// Wave-dependent spawn weights for the four enemy types. Brute/Marksman are layered in ON TOP,
+// introduced gradually and capped, so they show up as an added threat
+// rather than crowding out the other two -- the waveSizes bump above is
+// what actually keeps Grunt/Shooter's ABSOLUTE spawn count from
+// dropping now that there are 4 types splitting each wave's pool
+// instead of 2.
+function getEnemyTypeWeights(wave) {
+    const shooterWeight = Math.min(30 + wave * 3, 55);
+    const gruntWeight = 100 - shooterWeight;
+    const bruteWeight = Math.min(5 + wave * 2, 25);
+    const marksmanWeight = Math.min(5 + wave * 2, 25);
+    return [
+        { Type: Grunt, weight: gruntWeight },
+        { Type: Shooter, weight: shooterWeight },
+        { Type: Brute, weight: bruteWeight },
+        { Type: Marksman, weight: marksmanWeight }
+    ];
+}
+
+function pickWeightedEnemyType(wave) {
+    const weights = getEnemyTypeWeights(wave);
+    const total = weights.reduce((sum, entry) => sum + entry.weight, 0);
+    let r = Math.random() * total;
+    for (const entry of weights) {
+        if (r < entry.weight) return entry.Type;
+        r -= entry.weight;
+    }
+    return weights[weights.length - 1].Type; // floating-point fallback, practically never hit
+}
+
+// Picks a random enemy type (see getEnemyTypeWeights() above) and drops
+// it at a random point on a ring just inside the arena boundary, so
+// enemies visibly walk in from the edges instead of popping up next to
+// the player. Stats scale up a little every wave (see `scale` below) so
+// later waves are tougher, not just more crowded.
 function spawnEnemy() {
-    // More Shooters mixed in as the waves progress (30% -> up to 55%),
-    // so later waves bring more ranged pressure instead of just more
-    // Grunts rushing in the same way.
-    const shooterChance = Math.min(0.3 + currentWave * 0.03, 0.55);
-    const enemy = Math.random() < shooterChance ? new Shooter() : new Grunt();
+    const EnemyType = pickWeightedEnemyType(currentWave);
+    const enemy = new EnemyType();
 
     const scale = 1 + (currentWave - 1) * 0.1; // +10% health/damage per wave past the first
     enemy.maxHealth *= scale;
@@ -1416,6 +1466,23 @@ function updateBossBarUI() {
 // for a hit. Wave-clear detection lives at the bottom: once every
 // enemy queued for the current wave has been killed, either starts the
 // next wave or -- if this was the boss -- triggers victory.
+
+// DEV-ONLY convenience, bound to [N] (see handleKeyboard()): instantly
+// clears every enemy from -- and still queued for -- the current wave,
+// so the very next updateEnemies() call sees waveEnemiesRemaining hit 0
+// on its own and naturally advances to the next wave (or triggers
+// victory, if this was wave 10) through the exact same path a real
+// clear would. Lets every wave/the boss be reached and tested quickly
+// without actually fighting through each one first.
+function devSkipWave() {
+    if (gamePaused || victoryActive || waveTransitioning) return;
+    enemies.forEach((e) => scene.remove(e.mesh));
+    enemies = [];
+    boss = null;
+    waveSpawnQueue = 0;
+    waveEnemiesRemaining = 0;
+}
+
 function updateEnemies(deltaTime) {
     if (waveTransitioning) {
         waveTransitionTimer -= deltaTime;
@@ -1440,10 +1507,18 @@ function updateEnemies(deltaTime) {
     // ranged ones use scene/playerPosition/spawnEnemyBullet to fire at the
     // player instead. This is what lets Enemy.update() stay completely
     // generic: it doesn't need to know HOW a given enemy type attacks.
+    // Recomputed every frame from the actual change in position since
+    // last frame -- see Enemy.leadTarget() (enemies/Enemy.js), which
+    // ranged enemies use to aim ahead of a moving player instead of
+    // straight at their current spot.
+    playerVelocity.subVectors(player.position, previousPlayerPosition).divideScalar(Math.max(deltaTime, 0.0001));
+    previousPlayerPosition.copy(player.position);
+
     const attackContext = {
         dealDamageToPlayer: damagePlayer,
         spawnEnemyBullet: (entry) => enemyBullets.push(entry),
         playerPosition: player.position,
+        playerVelocity,
         checkObstacle: collidesWithObstacle, // lets Enemy.update() (enemies/Enemy.js) avoid crates/pillars, same check the player's own movement uses
         scene
     };
@@ -1664,21 +1739,27 @@ function triggerGameOver() {
     gameOverEl.classList.remove('hidden');
 }
 
-// Same idea as triggerGameOver(), but for actually winning -- called
-// from updateEnemies() once the boss (wave 10) is defeated. PLAY AGAIN
-// just reloads the page, same reasoning as RESTART.
+// Unlike triggerGameOver(), this deliberately does NOT cut to a
+// separate screen -- called from updateEnemies() once the boss (wave
+// 10) is defeated, it leaves the player standing right where they won,
+// in the arena, HUD and all, and just adds a big "VICTORY" banner over
+// the top for a few seconds before reloading back to the main menu on
+// its own (no button to press).
 function triggerVictory() {
-    gameStarted = false;
+    // Deliberately does NOT touch gameStarted, pointer lock, aim beam/
+    // marker, or the strength aura -- the player keeps playing
+    // completely normally (moving, looking around, shooting) for the
+    // few seconds the banner is up, right where they beat the boss.
+    // victoryActive only gates OUT the wave/enemy simulation (see
+    // animate()) -- everything player-driven keeps running.
     gamePaused = false;
+    victoryActive = true;
     pauseMenuEl.classList.add('hidden');
-    document.exitPointerLock();
-    uiOverlayEl.style.display = 'none';
-    hudBottomRightEl.style.display = 'none';
     bossBarContainerEl.classList.add('hidden');
-    aimBeam.visible = false;
-    aimMarker.visible = false;
-    strengthAura.visible = false;
-    victoryScreenEl.classList.remove('hidden');
+
+    victoryBannerEl.classList.add('visible');
+
+    setTimeout(() => location.reload(), VICTORY_DISPLAY_TIME * 1000);
 }
 
 // ============================================================
@@ -1731,11 +1812,19 @@ function animate() {
     const deltaTime = clock.getDelta(); // seconds elapsed since the last frame
 
     if (gameStarted && !gamePaused) {
-        updateGame(deltaTime); // move player, update camera
-        updateBullets(deltaTime); // move active bullets, remove expired ones
-        updateEnemies(deltaTime); // spawn/move/attack enemies, check player bullets against them
-        updateEnemyBullets(deltaTime); // move enemy bullets, check them against the player
-        updatePowerUps(deltaTime); // spawn/animate power-ups, pick up any the player is standing on
+        updateGame(deltaTime); // move player, update camera -- keeps running during the post-victory epilogue too, see below
+        updateBullets(deltaTime); // move the player's own bullets, remove expired ones -- also kept running post-victory, purely cosmetic once there's nothing left to hit
+        if (!victoryActive) {
+            // Wave/enemy simulation stops the instant the boss dies
+            // (triggerVictory() sets victoryActive) -- without this
+            // guard, updateEnemies() would notice waveEnemiesRemaining
+            // is still 0 on EVERY subsequent frame and call
+            // triggerVictory() again each time, endlessly re-arming its
+            // reload timer so it would never actually fire.
+            updateEnemies(deltaTime); // spawn/move/attack enemies, check player bullets against them
+            updateEnemyBullets(deltaTime); // move enemy bullets, check them against the player
+            updatePowerUps(deltaTime); // spawn/animate power-ups, pick up any the player is standing on
+        }
     } else if (!gameStarted) {
         updateMenuPreview(deltaTime); // idle turntable + camera framing behind the main menu
     }

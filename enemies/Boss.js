@@ -16,12 +16,20 @@ import { Enemy } from './Enemy.js';
 export class Boss extends Enemy {
     constructor() {
         super({
-            health: 900,
-            speed: 3.5,
-            damage: 20,         // per bolt -- see onAttack(), all three can hit at once at close range
-            attackRange: 15,    // stops well outside melee distance and fires from there instead
-            attackCooldown: 1.3,
-            hitRadius: 1.6      // matches the much bigger silhouette -- both for bullet hits and the aim-indicator ray
+            health: 1500,        
+            speed: 4.2,         
+            damage: 26,          
+            attackRange: 15,     
+            attackCooldown: 1.0, 
+            hitRadius: 6.4,      
+            // Movement/obstacle clearance is deliberately NOT scaled up
+            // with hitRadius -- at 6.4 the boss would read almost every
+            // obstacle in the arena as blocking its path and could never
+            // actually close to attackRange. 1.6 matches its actual ground
+            // footprint (its pre-scale hitRadius) -- the towering torso/
+            // arms are allowed to visually overlap obstacles, only the
+            // planted feet need to physically route around them.
+            moveRadius: 1.6
         });
 
         this.name = 'DOOMHORN'; // shown on the boss health bar (see updateBossBarUI() in main.js)
@@ -42,24 +50,19 @@ export class Boss extends Enemy {
         // frame reads as "boss" far more than simply scaling height up.
         const torsoGeo = new RoundedBoxGeometry(1.7, 1.5, 1.05, 2, 0.1);
         const torso = new THREE.Mesh(torsoGeo, skinMat);
-        torso.position.y = 1.75;
+        torso.position.y = 1.4;
         torso.castShadow = true;
         enemyGroup.add(torso);
 
-        // --- Chest ember / muzzle ---
+        // --- Chest ember ---
         // Same "glowing chest accent" motif as the player's own chest-core
         // (see createPlayer() in main.js), but ominous orange-red instead
-        // of the player's teal. Doubles as the spawn point for its ranged
-        // attack (see onAttack()) -- a devil-boss blasting bolts from its
-        // own chest reads better than bolting a separate weapon prop on.
+        // of the player's teal -- purely decorative (see onAttack(),
+        // which fires from the hands instead).
         const emberGeo = new THREE.BoxGeometry(0.5, 0.6, 0.08);
         const ember = new THREE.Mesh(emberGeo, emberMat);
         ember.position.set(0, 0.15, 0.525 + 0.04);
         torso.add(ember);
-
-        this.muzzle = new THREE.Object3D();
-        this.muzzle.position.set(0, 0.15, 0.525 + 0.1);
-        torso.add(this.muzzle);
 
         // --- Spine spikes ---
         const spikeGeo = new THREE.ConeGeometry(0.1, 0.44, 5);
@@ -128,15 +131,28 @@ export class Boss extends Enemy {
         rightClaw.castShadow = true;
         rightArm.add(rightClaw);
 
+        // --- Hand muzzles ---
+        // Attack spawn points (see onAttack()), one per claw -- fires
+        // from the hands, angled down at the player, instead of a flat
+        // horizontal shot from chest height that would
+        // sail straight over the player's head.
+        this.leftMuzzle = new THREE.Object3D();
+        this.leftMuzzle.position.set(0, -1.0, 0.2); // just past the claw tip
+        leftArm.add(this.leftMuzzle);
+
+        this.rightMuzzle = new THREE.Object3D();
+        this.rightMuzzle.position.set(0, -1.0, 0.2);
+        rightArm.add(this.rightMuzzle);
+
         // --- Legs (wide stance, matching the broad torso) ---
-        const legGeo = new RoundedBoxGeometry(0.46, 1.05, 0.46, 2, 0.06);
+        const legGeo = new RoundedBoxGeometry(0.46, 0.65, 0.46, 2, 0.06);
         const leftLeg = new THREE.Mesh(legGeo, skinMat);
-        leftLeg.position.set(-0.42, 0.525, 0);
+        leftLeg.position.set(-0.42, 0.325, 0);
         leftLeg.castShadow = true;
         enemyGroup.add(leftLeg);
 
         const rightLeg = new THREE.Mesh(legGeo, skinMat);
-        rightLeg.position.set(0.42, 0.525, 0);
+        rightLeg.position.set(0.42, 0.325, 0);
         rightLeg.castShadow = true;
         enemyGroup.add(rightLeg);
 
@@ -146,25 +162,35 @@ export class Boss extends Enemy {
         this.leftLeg = leftLeg;
         this.rightLeg = rightLeg;
 
+        // Scaling the whole group by 4 (rather than re-deriving every
+        // single dimension/position above) is enough on its own -- the
+        // model's local origin already sits at ground level (the legs'
+        // bottoms are right around local y=0), so it stays grounded
+        // instead of sinking/floating, and every child transform
+        // (including the two muzzles', read via getWorldPosition() in
+        // onAttack()) scales along with it automatically.
+        enemyGroup.scale.set(4, 4, 4);
+
         return enemyGroup;
     }
 
-    // Ranged: fires a 3-bolt horizontal spread from the chest ember
-    // toward the player, same spawn-a-tracked-bullet technique as
-    // Shooter.onAttack() (see enemies/Shooter.js), just three at once.
+    // Ranged: fires one bolt from EACH hand toward a PREDICTED player
+    // position (see Enemy.leadTarget()), same spawn-a-tracked-bullet
+    // technique as Shooter.onAttack() (see enemies/Shooter.js) -- except
+    // the aim direction here is a genuine 3D vector instead of being
+    // flattened to Y=0 like every other ranged enemy's shot. Every other
+    // enemy fires level because it's roughly player-height already; this
+    // boss's hands sit several units up (see the 4x scale in
+    // createModel()), so a level shot would just sail over the player's
+    // head -- aiming the real, unflattened vector down at them is what
+    // actually lands it.
     onAttack(context) {
-        const spawnPos = new THREE.Vector3();
-        this.muzzle.getWorldPosition(spawnPos);
+        for (const muzzle of [this.leftMuzzle, this.rightMuzzle]) {
+            const spawnPos = new THREE.Vector3();
+            muzzle.getWorldPosition(spawnPos);
 
-        const toPlayer = new THREE.Vector3().subVectors(context.playerPosition, spawnPos);
-        toPlayer.y = 0;
-        toPlayer.normalize();
-        const baseAngle = Math.atan2(toPlayer.x, toPlayer.z);
-
-        const spreadAngles = [-0.16, 0, 0.16];
-        for (const offset of spreadAngles) {
-            const angle = baseAngle + offset;
-            const direction = new THREE.Vector3(Math.sin(angle), 0, Math.cos(angle));
+            const aimPoint = this.leadTarget(context, spawnPos, this.bulletSpeed);
+            const direction = new THREE.Vector3().subVectors(aimPoint, spawnPos).normalize();
 
             const bulletGeo = new THREE.SphereGeometry(0.14, 8, 8);
             const bulletMat = new THREE.MeshStandardMaterial({ color: 0xff5500, emissive: 0xff2200, emissiveIntensity: 2.5 });
