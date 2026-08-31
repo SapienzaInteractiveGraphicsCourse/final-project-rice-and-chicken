@@ -6,7 +6,7 @@ import { Shooter } from './enemies/Shooter.js';
 import { Brute } from './enemies/Brute.js';
 import { Marksman } from './enemies/Marksman.js';
 import { Boss } from './enemies/Boss.js';
-import { createEnvironment } from './environment.js';
+import { createEnvironment, getGroundHeightAt, getClimbableHeightAt } from './environment.js';
 import { HealthPickup } from './powerups/HealthPickup.js';
 import { SmallArmorPickup } from './powerups/SmallArmorPickup.js';
 import { LargeArmorPickup } from './powerups/LargeArmorPickup.js';
@@ -136,7 +136,8 @@ let enemyBullets = [];
 let enemySpawnTimer = 0;
 const enemySpawnInterval = 2.2;   // seconds between spawns -- was 4, arena was reading as empty/slow between fights
 const maxConcurrentEnemies = 14;  // hard cap on how many can be alive AT ONCE, regardless of wave size -- was 8, raised to actually let that faster spawn rate fill the arena instead of just queueing behind the cap
-const arenaSpawnRadius = 22;    // just inside the movement boundary (limit = 24 in updateGame())
+const arenaSpawnRadius = 29;    // just inside the movement boundary (limit = 32 in updateGame()) -- widened along with the arena, see environment.js's BOUNDARY
+const bulletWallLimit = 33.5;   // matches environment.js's WALL_DISTANCE -- stops a long-range shot (e.g. the sniper) from sailing straight through the perimeter wall (see updateBullets()/updateEnemyBullets())
 
 // --- Waves ---
 // 9 regular waves of increasing size/difficulty, then a single boss
@@ -231,11 +232,81 @@ const jumpForce = 10;          // initial upward velocity when jumping
 // The camera orbits the player at a constant distance, driven by yaw
 // (left/right) and pitch (up/down) angles that the mouse updates.
 let cameraYaw = 0;
-let cameraPitch = Math.asin(0.6); // ~0.6435 rad
+const defaultCameraPitch = Math.asin(0.6); // ~0.6435 rad -- the resting camera position, untouched by mouse input
+let cameraPitch = defaultCameraPitch;
 const cameraDistance = 10;
 const mouseSensitivity = 0.0025;
 const minPitch = 0.25; // radians (~14°) -- fairly level, avoids an almost-flat view
 const maxPitch = 0.85; // radians (~49°) -- a comfortable "over the shoulder" max, avoids a jarring near-top-down swing
+
+// --- Vertical aim (shooting up/down) ---
+// Directly mouse-driven, like aiming in any other shooter -- NOT
+// derived from cameraPitch's own current value/range . manualAimPitch instead starts at exactly 0
+// and is nudged directly by the same mouse-Y input as cameraPitch (see
+// the mousemove listener in init()), completely independently of it 
+let manualAimPitch = 0;
+const maxAimUpAngle = 0.5;    // radians (~29°)
+const maxAimDownAngle = 0.6;  // radians (~34°)
+const aimMouseScale = 1.5;    // how strongly mouse-Y drives aim, relative to mouseSensitivity
+
+// Light assist on top of the manual aim above: if whatever the player
+// is ALREADY roughly pointing at (manually) happens to have an enemy
+// on that line, blend the target a bit further toward the exact angle
+// that would actually hit it, instead of leaving the player to line up
+// the last few degrees by hand. autoAimAssistStrength is how much of
+// that correction gets applied (0 = pure manual, 1 = fully snaps to
+// the target) -- kept low since this is meant to be a light nudge, not
+// a full auto-lock.
+const autoAimAssistStrength = 0.3;
+const autoAimTolerance = 0.35; // extra leeway (world units) added to hitRadius when checking if an enemy is "roughly" lined up
+
+// The CURRENT vertical aim angle actually used for shooting/the torso
+// tilt/the aim beam (radians, positive = upward) -- see updateAimPitch()
+// below. Kept as smoothed state rather than the raw per-frame target so
+// the assist blending in/out (an enemy entering/leaving the aim line)
+// eases instead of snapping.
+let aimPitch = 0;
+const aimPitchSmoothRate = 12; // higher = catches up to the target faster (snappier), lower = laggier/smoother
+
+// Called once per frame from updateGame() (deltaTime needed for
+// frame-rate-independent smoothing) -- moves the shared `aimPitch`
+// state a fraction of the way toward manualAimPitch, lightly pulled
+// toward a locked-on enemy's real angle if one's currently lined up.
+function updateAimPitch(deltaTime) {
+    let targetAimPitch = manualAimPitch;
+
+    const origin = new THREE.Vector3();
+    player.userData.muzzle.getWorldPosition(origin);
+    const dirX = Math.sin(cameraYaw);
+    const dirZ = Math.cos(cameraYaw);
+
+    // Same closest-along-the-ray search as updateAimIndicator()'s XZ
+    // test -- finds the nearest enemy (if any) whose footprint the
+    // CURRENT horizontal aim direction actually passes near.
+    let bestT = Infinity;
+    let lockedAngle = null;
+    for (const enemy of enemies) {
+        const ex = enemy.mesh.position.x - origin.x;
+        const ez = enemy.mesh.position.z - origin.z;
+        const t = ex * dirX + ez * dirZ;
+        if (t <= 0.5 || t >= bestT) continue; // ignore anything behind the muzzle or farther than the current best candidate
+
+        const perpDist = Math.hypot(ex - dirX * t, ez - dirZ * t);
+        if (perpDist >= enemy.hitRadius + autoAimTolerance) continue;
+
+        bestT = t;
+        const enemyCenterY = enemy.mesh.position.y + enemy.hitRadius; // rough body-center approximation, same one used elsewhere
+        lockedAngle = Math.max(-maxAimDownAngle, Math.min(maxAimUpAngle, Math.atan2(enemyCenterY - origin.y, t)));
+    }
+    if (lockedAngle !== null) {
+        targetAimPitch = THREE.MathUtils.lerp(manualAimPitch, lockedAngle, autoAimAssistStrength);
+    }
+
+    // Exponential smoothing (1 - e^-kt) -- frame-rate independent, unlike
+    // a fixed per-frame lerp fraction which would move faster at higher fps.
+    const smoothing = 1 - Math.exp(-aimPitchSmoothRate * deltaTime);
+    aimPitch += (targetAimPitch - aimPitch) * smoothing;
+}
 
 // --- Menu character-preview rotation ---
 // True while the left mouse button is held down over the menu (see the
@@ -505,6 +576,7 @@ const armorValueEl = document.getElementById('armor-value');
 const strengthBuffLineEl = document.getElementById('strength-buff-line');
 const strengthBuffTimerEl = document.getElementById('strength-buff-timer');
 const gameOverEl = document.getElementById('game-over');
+const gameOverWaveEl = document.getElementById('game-over-wave');
 const pauseMenuEl = document.getElementById('pause-menu');
 const victoryBannerEl = document.getElementById('victory-banner');
 const waveValueEl = document.getElementById('wave-value');
@@ -696,10 +768,10 @@ function init() {
     // almost everything would fall outside it and simply not cast a
     // shadow at all. Widened to cover the whole playable area (see
     // WALL_DISTANCE in environment.js) plus some margin.
-    dirLight.shadow.camera.left = -32;
-    dirLight.shadow.camera.right = 32;
-    dirLight.shadow.camera.top = 32;
-    dirLight.shadow.camera.bottom = -32;
+    dirLight.shadow.camera.left = -42;
+    dirLight.shadow.camera.right = 42;
+    dirLight.shadow.camera.top = 42;
+    dirLight.shadow.camera.bottom = -42;
     dirLight.shadow.camera.far = 100;
     dirLight.shadow.bias = -0.0015; // the much larger frustum above needs a bit of bias to avoid shadow-acne artifacts
     scene.add(dirLight);
@@ -832,9 +904,19 @@ function init() {
         }
 
         cameraYaw -= e.movementX * mouseSensitivity;
-        cameraPitch += e.movementY * mouseSensitivity; 
+        cameraPitch += e.movementY * mouseSensitivity;
         // Clamp so the camera can't flip upside down or dive underground
         cameraPitch = Math.max(minPitch, Math.min(maxPitch, cameraPitch));
+
+        // Vertical aim (see manualAimPitch/updateAimPitch() above) --
+        // completely separate from cameraPitch just above, own state and
+        // own clamped range. Sign is INVERTED relative to cameraPitch's
+        // own update on purpose: e.movementY is positive when the mouse
+        // moves DOWN, and standard shooter convention is mouse up (=
+        // movementY negative) tilts the shot UP, so this subtracts
+        // instead of adding.
+        manualAimPitch -= e.movementY * mouseSensitivity * aimMouseScale;
+        manualAimPitch = Math.max(-maxAimDownAngle, Math.min(maxAimUpAngle, manualAimPitch));
     });
 
     // Pointer Lock exit -- fires both when WE call exitPointerLock()
@@ -938,18 +1020,48 @@ function handleKeyboard(event, isKeyDown) {
     }
 }
 
-// True if a point at (x, z) -- with `entityRadius` added on top -- would
-// overlap any environment obstacle (beacons, crates, see environment.js).
-// Used to keep both the player (updateGame(), with playerCollisionRadius)
-// and every enemy (updateEnemies()'s attackContext.checkObstacle, with
-// that enemy's own hitRadius) from walking through them; same flat
-// distance-check style as the bullet/enemy hit tests elsewhere, just
-// against static circles instead of moving ones.
-function collidesWithObstacle(x, z, entityRadius) {
+// True if a point at (x, z, y) -- with `entityRadius` added on top --
+// would overlap any environment obstacle (beacons, crates, jump-
+// platforms, see environment.js). Used to keep both the player
+// (updateGame(), with playerCollisionRadius) and every enemy
+// (updateEnemies()'s attackContext.checkObstacle, with that enemy's own
+// hitRadius) from walking through them; same flat distance-check style
+// as the bullet/enemy hit tests elsewhere, just against static circles
+// instead of moving ones. Jump-platforms (the ones with a `topY`, see
+// createJumpPlatforms() in environment.js) are skipped once the
+// checking entity's own `y` is at/above that top -- that's what lets
+// the player walk freely across a platform's top instead of still being
+// blocked by its own base once standing on it.
+function collidesWithObstacle(x, z, y, entityRadius) {
     for (const obstacle of environmentObstacles) {
+        if (obstacle.topY !== undefined && y >= obstacle.topY - 0.3) continue;
         const dx = x - obstacle.x;
         const dz = z - obstacle.z;
         if (Math.hypot(dx, dz) < obstacle.radius + entityRadius) return true;
+    }
+    return false;
+}
+
+// True if a bullet at (x, z, y) has flown into the solid body of any
+// environment obstacle -- called every frame from updateBullets()/
+// updateEnemyBullets() below so shots actually stop at crates/pillars/
+// jump-platforms instead of sailing straight through them. Same circle
+// check as collidesWithObstacle() above, but with no entityRadius (a
+// bullet is a point for this purpose) and a different height rule: a
+// climbable obstacle (topY, see createProps()/createJumpPlatforms() in
+// environment.js) only blocks up to its own top -- a shot arriving from
+// above, over that top, is meant to be able to land ON it (see the
+// getGroundHeightAt() check at each bullet's own call site, which is
+// what actually stops it there) rather than being blocked early by this
+// check. A non-climbable obstacle (beacons/pillars, which carry `height`
+// instead) has no walkable top at all, so it blocks for its entire height.
+function bulletBlockedByObstacle(x, z, y) {
+    for (const obstacle of environmentObstacles) {
+        const solidTop = obstacle.topY !== undefined ? obstacle.topY : obstacle.height;
+        if (solidTop !== undefined && y >= solidTop) continue;
+        const dx = x - obstacle.x;
+        const dz = z - obstacle.z;
+        if (Math.hypot(dx, dz) < obstacle.radius) return true;
     }
     return false;
 }
@@ -959,6 +1071,8 @@ function collidesWithObstacle(x, z, entityRadius) {
 // Reads current input state and moves the player accordingly.
 // ============================================================
 function updateGame(deltaTime) {
+    updateAimPitch(deltaTime); // smoothly catch `aimPitch` up to wherever the player is currently looking -- see its definition above
+
     // Build a movement input in LOCAL terms first: how much forward/back
     // and how much left/right, independent of any world direction.
     let moveForward = 0; // +1 = W (forward), -1 = S (backward)
@@ -990,8 +1104,8 @@ function updateGame(deltaTime) {
     // buff (see powerups/StrengthPickup.js) temporarily speeds this up.
     const currentSpeed = baseSpeed * (strengthBuffTimer > 0 ? strengthSpeedMultiplier : 1) * deltaTime;
 
-    // Arena boundary: player can't walk past +/- 24 on X or Z
-    const limit = 24;
+    // Arena boundary: player can't walk past +/- 32 on X or Z
+    const limit = 32;
     let nextX = player.position.x + moveX * currentSpeed;
     let nextZ = player.position.z + moveZ * currentSpeed;
 
@@ -1002,10 +1116,10 @@ function updateGame(deltaTime) {
     // along one axis only cancels movement along that axis, so moving
     // diagonally into the corner of a crate slides you along its edge
     // instead of just stopping dead.
-    if (nextX > -limit && nextX < limit && !collidesWithObstacle(nextX, player.position.z, playerCollisionRadius)) {
+    if (nextX > -limit && nextX < limit && !collidesWithObstacle(nextX, player.position.z, player.position.y, playerCollisionRadius)) {
         player.position.x = nextX;
     }
-    if (nextZ > -limit && nextZ < limit && !collidesWithObstacle(player.position.x, nextZ, playerCollisionRadius)) {
+    if (nextZ > -limit && nextZ < limit && !collidesWithObstacle(player.position.x, nextZ, player.position.y, playerCollisionRadius)) {
         player.position.z = nextZ;
     }
 
@@ -1055,6 +1169,19 @@ function updateGame(deltaTime) {
     // from cameraYaw, this local rotation never exceeds maxTwist either --
     // no more full 180° torso twists.
     player.userData.torso.rotation.y = cameraYaw - player.rotation.y;
+
+    // Tilts the torso/gun up or down to hint at the current (smoothed)
+    // vertical aim -- see aimPitch/updateAimPitch() above and
+    // shootBullet()/updateAimIndicator() below, which use the FULL
+    // aimPitch for the actual shot direction/aim beam. The torso mesh's
+    // own pivot sits at its geometric center rather than at a hip/neck
+    // joint (there's no separate waist bone to bend at), so rotating it
+    // by the full angle reads as the whole block pivoting oddly around
+    // its middle instead of a natural lean -- toning the VISUAL tilt
+    // down (torsoTiltFactor) keeps the pose readable without the shot
+    // itself losing any accuracy, since that still uses aimPitch directly.
+    const torsoTiltFactor = 0.45;
+    player.userData.torso.rotation.x = aimPitch * torsoTiltFactor;
 
     // --- Walk-direction sign ---
     // animateWalk()'s swing is just a function of elapsed time, so on its
@@ -1121,8 +1248,10 @@ function updateGame(deltaTime) {
 //   they're currently on the ground (no mid-air double jumps).
 // - updateVerticalMovement() runs every frame: gravity constantly
 //   pulls velocityY down, and velocityY moves the player up/down.
-//   When the player reaches the ground again, we clamp position
-//   back to y=0 and mark them as grounded.
+//   "The ground" isn't always y=0 anymore -- getGroundHeightAt()
+//   (environment.js) also checks the jump-platforms scattered around
+//   the arena and returns THEIR top instead, if the player is over one
+//   and high enough to be landing on it rather than passing through.
 // ============================================================
 function jump() {
     if (isGrounded) {
@@ -1135,10 +1264,14 @@ function updateVerticalMovement(deltaTime) {
     velocityY += gravity * deltaTime;       // gravity accelerates the fall every frame
     player.position.y += velocityY * deltaTime;
 
-    if (player.position.y <= 0) {
-        player.position.y = 0;  // don't let the player fall through the floor
+    const groundY = getGroundHeightAt(environmentObstacles, player.position.x, player.position.z, player.position.y);
+
+    if (player.position.y <= groundY) {
+        player.position.y = groundY;  // don't let the player fall through the floor (or a jump-platform's top)
         velocityY = 0;
         isGrounded = true;
+    } else {
+        isGrounded = false;
     }
 }
 
@@ -1191,22 +1324,30 @@ function animateWalk(isMoving, deltaTime, walkDirSign = 1) {
 // ============================================================
 function shootBullet() {
     const weapon = player.userData.playerClass.weapons[currentWeaponIndex];
-    const bulletEntry = weapon.shoot(scene, player.userData.muzzle, cameraYaw);
+    const bulletEntry = weapon.shoot(scene, player.userData.muzzle, cameraYaw, aimPitch);
     // Strength buff (see powerups/StrengthPickup.js) temporarily hits harder.
     if (strengthBuffTimer > 0) bulletEntry.damage = Math.round(bulletEntry.damage * strengthDamageMultiplier);
     bullets.push(bulletEntry);
 }
 
-// Moves every active bullet forward and removes the ones that have
-// existed longer than their own weapon's bulletLifetime, so the
-// array (and the scene) don't grow forever.
+// Moves every active bullet forward and removes it once it either:
+// outlives its own weapon's bulletLifetime, flies into the ground/a
+// climbable obstacle's top (getGroundHeightAt -- same "floor" the
+// player/enemies land on, see environment.js), flies into the solid
+// body of a non-climbable obstacle (bulletBlockedByObstacle() above),
+// or crosses the arena's outer wall -- so shots actually stop at
+// crates/pillars/the floor instead of sailing straight through them.
 function updateBullets(deltaTime) {
     for (let i = bullets.length - 1; i >= 0; i--) {
         const b = bullets[i];
         b.mesh.position.addScaledVector(b.velocity, deltaTime);
         b.age += deltaTime;
 
-        if (b.age > b.lifetime) {
+        const pos = b.mesh.position;
+        const hitGround = pos.y <= getGroundHeightAt(environmentObstacles, pos.x, pos.z, pos.y);
+        const hitWall = Math.abs(pos.x) > bulletWallLimit || Math.abs(pos.z) > bulletWallLimit;
+
+        if (b.age > b.lifetime || hitGround || hitWall || bulletBlockedByObstacle(pos.x, pos.z, pos.y)) {
             scene.remove(b.mesh); // stop rendering it
             bullets.splice(i, 1); // remove it from our tracking array
         }
@@ -1258,8 +1399,11 @@ function updateAimIndicator(deltaTime) {
     const origin = new THREE.Vector3();
     player.userData.muzzle.getWorldPosition(origin);
 
-    const dirX = Math.sin(cameraYaw);
-    const dirZ = Math.cos(cameraYaw);
+    // Full 3D direction now (see aimPitch/updateAimPitch() above) -- at
+    // aimPitch = 0 this is exactly the old flat (sin(yaw), 0, cos(yaw)).
+    const dirX = Math.sin(cameraYaw) * Math.cos(aimPitch);
+    const dirY = Math.sin(aimPitch);
+    const dirZ = Math.cos(cameraYaw) * Math.cos(aimPitch);
 
     // Never claims a longer reach than this weapon's own bullets actually
     // have (see Weapon.shoot()/updateBullets()), capped to the same ring
@@ -1272,11 +1416,21 @@ function updateAimIndicator(deltaTime) {
     for (const enemy of enemies) {
         const ex = enemy.mesh.position.x - origin.x;
         const ez = enemy.mesh.position.z - origin.z;
-        const t = ex * dirX + ez * dirZ; // distance along the ray to this enemy's closest approach
+        const t = ex * dirX + ez * dirZ; // distance along the ray to this enemy's closest approach (XZ)
         if (t < 0 || t > hitDistance) continue;
 
         const perpDist = Math.hypot(ex - dirX * t, ez - dirZ * t);
         if (perpDist >= enemy.hitRadius) continue;
+
+        // The ray can now travel up/down too (see aimPitch above) -- also
+        // confirm it's actually near this enemy's body height at that
+        // point along its path, not just lined up in XZ. Enemies are
+        // rooted at their feet (mesh.position.y), so their body's rough
+        // vertical center sits about one hitRadius above that -- same
+        // approximation used for the real bullet-hit check below.
+        const enemyCenterY = enemy.mesh.position.y + enemy.hitRadius;
+        const rayY = origin.y + dirY * t;
+        if (Math.abs(rayY - enemyCenterY) > enemy.hitRadius) continue;
 
         // Back up from the closest-approach point to where the ray
         // actually enters the enemy's hit circle, so the marker sits on
@@ -1289,15 +1443,16 @@ function updateAimIndicator(deltaTime) {
     }
 
     const endX = origin.x + dirX * hitDistance;
+    const endY = origin.y + dirY * hitDistance;
     const endZ = origin.z + dirZ * hitDistance;
 
     // Stretch+orient the unit cylinder so it spans exactly from the
     // muzzle to the impact point.
-    aimBeam.position.set((origin.x + endX) / 2, origin.y, (origin.z + endZ) / 2);
+    aimBeam.position.set((origin.x + endX) / 2, (origin.y + endY) / 2, (origin.z + endZ) / 2);
     aimBeam.scale.set(1, hitDistance, 1);
-    aimBeam.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), new THREE.Vector3(dirX, 0, dirZ));
+    aimBeam.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), new THREE.Vector3(dirX, dirY, dirZ));
 
-    aimMarker.position.set(endX, origin.y, endZ);
+    aimMarker.position.set(endX, endY, endZ);
     aimMarker.rotation.y += deltaTime * 2.5; // slow tumble -- reads as an active "scanner", not a static decal
     aimMarker.rotation.x += deltaTime * 1.6;
     aimMarker.scale.setScalar(hitEnemy ? 1.6 : 1);
@@ -1520,6 +1675,12 @@ function updateEnemies(deltaTime) {
         playerPosition: player.position,
         playerVelocity,
         checkObstacle: collidesWithObstacle, // lets Enemy.update() (enemies/Enemy.js) avoid crates/pillars, same check the player's own movement uses
+        // Both reused from the exact same jump-platform/crate system the
+        // player's own jump() uses (see environment.js) -- getGroundHeight
+        // is for landing/gravity once an enemy is airborne, getClimbableHeight
+        // is for deciding whether to jump in the first place (see Enemy.js's update()).
+        getGroundHeight: (x, z, y) => getGroundHeightAt(environmentObstacles, x, z, y),
+        getClimbableHeight: (x, z) => getClimbableHeightAt(environmentObstacles, x, z),
         scene
     };
 
@@ -1527,12 +1688,17 @@ function updateEnemies(deltaTime) {
         const enemy = enemies[i];
         enemy.update(deltaTime, player.position, attackContext);
 
-        // Player bullets vs. this enemy: a simple XZ-plane distance check
+        // Player bullets vs. this enemy: an XZ-plane distance check, plus
+        // (now that bullets can travel up/down too -- see aimPitch
+        // above) a vertical check against the enemy's rough body
+        // center, same enemy.mesh.position.y + hitRadius approximation
+        // updateAimIndicator() uses for its own hit prediction.
         for (let j = bullets.length - 1; j >= 0; j--) {
             const b = bullets[j];
             const dx = b.mesh.position.x - enemy.mesh.position.x;
             const dz = b.mesh.position.z - enemy.mesh.position.z;
-            if (Math.hypot(dx, dz) < enemy.hitRadius) {
+            const dy = b.mesh.position.y - (enemy.mesh.position.y + enemy.hitRadius);
+            if (Math.hypot(dx, dz) < enemy.hitRadius && Math.abs(dy) < enemy.hitRadius) {
                 scene.remove(b.mesh);
                 bullets.splice(j, 1);
 
@@ -1563,19 +1729,30 @@ function updateEnemies(deltaTime) {
 }
 
 // Moves every enemy bullet forward, checks it against the player (same
-// distance-check style as above), and removes it on a hit or once it
-// outlives its lifetime.
+// distance-check style as above), and removes it on a hit, once it
+// outlives its lifetime, or -- same as updateBullets() above -- once it
+// flies into the ground/a climbable obstacle's top, the solid body of a
+// non-climbable obstacle, or the arena's outer wall.
 function updateEnemyBullets(deltaTime) {
     for (let i = enemyBullets.length - 1; i >= 0; i--) {
         const b = enemyBullets[i];
         b.mesh.position.addScaledVector(b.velocity, deltaTime);
         b.age += deltaTime;
 
-        const dx = b.mesh.position.x - player.position.x;
-        const dz = b.mesh.position.z - player.position.z;
-        const hitPlayer = Math.hypot(dx, dz) < 0.6; // rough player hit radius
+        const pos = b.mesh.position;
+        const dx = pos.x - player.position.x;
+        const dz = pos.z - player.position.z;
+        // Ranged enemies now aim up/down too (see Shooter.js/Marksman.js's
+        // onAttack()), so also check the shot's height against a rough
+        // vertical span for the player's body -- centered a bit above
+        // player.position (their feet) at roughly chest height.
+        const dy = pos.y - (player.position.y + 0.9);
+        const hitPlayer = Math.hypot(dx, dz) < 0.6 && Math.abs(dy) < 1.1; // rough player hit radius
 
-        if (hitPlayer || b.age > b.lifetime) {
+        const hitGround = pos.y <= getGroundHeightAt(environmentObstacles, pos.x, pos.z, pos.y);
+        const hitWall = Math.abs(pos.x) > bulletWallLimit || Math.abs(pos.z) > bulletWallLimit;
+
+        if (hitPlayer || b.age > b.lifetime || hitGround || hitWall || bulletBlockedByObstacle(pos.x, pos.z, pos.y)) {
             scene.remove(b.mesh);
             enemyBullets.splice(i, 1);
             if (hitPlayer) damagePlayer(b.damage);
@@ -1650,9 +1827,9 @@ function pickWeightedPowerUpType() {
 // unlucky enough to land inside something, which is exceedingly rare.
 function findPowerUpSpawnPosition() {
     for (let attempt = 0; attempt < 8; attempt++) {
-        const x = (Math.random() * 2 - 1) * 20;
-        const z = (Math.random() * 2 - 1) * 20;
-        if (!collidesWithObstacle(x, z, 0.5)) return { x, z };
+        const x = (Math.random() * 2 - 1) * 26; 
+        const z = (Math.random() * 2 - 1) * 26;
+        if (!collidesWithObstacle(x, z, 0, 0.5)) return { x, z };
     }
     return { x: 0, z: 0 };
 }
@@ -1736,6 +1913,7 @@ function triggerGameOver() {
     aimBeam.visible = false;
     aimMarker.visible = false;
     strengthAura.visible = false;
+    gameOverWaveEl.textContent = currentWave; // "WAVE REACHED" readout on the game-over panel
     gameOverEl.classList.remove('hidden');
 }
 

@@ -79,16 +79,26 @@
     </div>
 
     <div id="game-over" class="hidden">
-        <h1 class="game-over-title">SYSTEM OFFLINE</h1>
-        <button id="restart-button" class="restart-button">RESTART</button>
+        <div class="overlay-scan game-over-scan"></div>
+        <div class="overlay-panel game-over-panel">
+            <div class="overlay-glow game-over-glow"></div>
+            <h1 class="game-over-title" data-text="SYSTEM OFFLINE">SYSTEM OFFLINE</h1>
+            <p class="game-over-sub">NEURAL LINK TERMINATED</p>
+            <p class="game-over-stat">WAVE REACHED — <span id="game-over-wave">1</span></p>
+            <button id="restart-button" class="restart-button">↻ RESTART</button>
+        </div>
     </div>
 
 
     <div id="pause-menu" class="hidden">
-        <h1 class="pause-title">PAUSED</h1>
-        <div class="pause-buttons">
-            <button id="resume-button" class="resume-button">RESUME</button>
-            <button id="quit-button" class="quit-button">MAIN MENU</button>
+        <div class="overlay-panel pause-panel">
+            <div class="overlay-glow pause-glow"></div>
+            <h1 class="pause-title">PAUSED</h1>
+            <p class="pause-sub">SIMULATION SUSPENDED</p>
+            <div class="pause-buttons">
+                <button id="resume-button" class="resume-button">▶ RESUME</button>
+                <button id="quit-button" class="quit-button">MAIN MENU</button>
+            </div>
         </div>
     </div>
 

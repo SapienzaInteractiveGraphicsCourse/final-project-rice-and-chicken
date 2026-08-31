@@ -113,15 +113,17 @@ export class Shooter extends Enemy {
 
     // Ranged: spawns a bullet aimed at a PREDICTED player position (see
     // Enemy.leadTarget()) instead of wherever they currently are, from
-    // the blaster's muzzle world position.
+    // the blaster's muzzle world position. Genuine 3D aim (not flattened
+    // to Y=0) -- same technique Boss.js's onAttack() uses, so this shot
+    // actually tilts up/down toward the player instead of always firing
+    // dead level, e.g. if the player is up on a jump-platform or the
+    // shooter itself jumped onto one (see Enemy.js's update()).
     onAttack(context) {
         const spawnPos = new THREE.Vector3();
         this.muzzle.getWorldPosition(spawnPos);
 
         const aimPoint = this.leadTarget(context, spawnPos, this.bulletSpeed);
-        const direction = new THREE.Vector3().subVectors(aimPoint, spawnPos);
-        direction.y = 0;
-        direction.normalize();
+        const direction = new THREE.Vector3().subVectors(aimPoint, spawnPos).normalize();
 
         const bulletGeo = new THREE.SphereGeometry(0.08, 8, 8);
         const bulletMat = new THREE.MeshStandardMaterial({ color: 0xcc66ff, emissive: 0xaa22ff, emissiveIntensity: 2 });

@@ -113,15 +113,15 @@ export class Marksman extends Enemy {
 
     // Ranged: single hard-hitting shot aimed at a PREDICTED player
     // position (see Enemy.leadTarget()) -- same technique as Shooter,
-    // just one precise shot instead of a burst.
+    // just one precise shot instead of a burst. Genuine 3D aim (not
+    // flattened to Y=0), same as Shooter/Boss -- tilts toward the
+    // player's real height instead of always firing dead level.
     onAttack(context) {
         const spawnPos = new THREE.Vector3();
         this.muzzle.getWorldPosition(spawnPos);
 
         const aimPoint = this.leadTarget(context, spawnPos, this.bulletSpeed);
-        const direction = new THREE.Vector3().subVectors(aimPoint, spawnPos);
-        direction.y = 0;
-        direction.normalize();
+        const direction = new THREE.Vector3().subVectors(aimPoint, spawnPos).normalize();
 
         const bulletGeo = new THREE.SphereGeometry(0.09, 8, 8);
         const bulletMat = new THREE.MeshStandardMaterial({ color: 0x66ffcc, emissive: 0x22ff99, emissiveIntensity: 2.2 });

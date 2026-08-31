@@ -7,7 +7,15 @@ import * as THREE from 'three';
 // enemy straight through the arena's perimeter wall without this, since
 // the walls themselves aren't registered obstacles (the player's own
 // boundary clamp is what actually keeps things inside them).
-const ARENA_LIMIT = 24;
+const ARENA_LIMIT = 32; 
+
+// Same jump/gravity numbers as the player's own jump() / updateVerticalMovement()
+// in main.js (jumpForce=10, gravity=-25 -> max height exactly 2.0) --
+// keeping them identical means an enemy can reach exactly the same
+// jump-platforms/crates the player can, no more and no less.
+const ENEMY_GRAVITY = -25;
+const ENEMY_JUMP_FORCE = 10;
+const MAX_ENEMY_JUMP_HEIGHT = 2.0; // must match MAX_JUMP_HEIGHT in environment.js
 
 // ============================================================
 // ENEMY (base class)
@@ -58,6 +66,13 @@ export class Enemy {
         this.strafeSign = Math.random() < 0.5 ? 1 : -1;
 
         this.walkTime = 0;              // drives the walk-cycle sine wave, only advances while moving
+
+        // Vertical state for jumping onto crates/jump-platforms (see
+        // update()) -- same gravity/landing model as the player's own
+        // velocityY/isGrounded in main.js, just kept per-enemy here
+        // instead of as globals.
+        this.velocityY = 0;
+        this.isGrounded = true;
 
         // Built by the subclass; must set this.leftLeg/rightLeg/leftArm/
         // rightArm (all optional -- animateWalk() just skips whichever
@@ -128,8 +143,21 @@ export class Enemy {
             const lookAhead = this.moveRadius + 1.4;
             const aheadX = this.mesh.position.x + moveDir.x * lookAhead;
             const aheadZ = this.mesh.position.z + moveDir.z * lookAhead;
-            if (attackContext.checkObstacle(aheadX, aheadZ, this.moveRadius)) {
-                moveDir.applyAxisAngle(new THREE.Vector3(0, 1, 0), this.strafeSign * (Math.PI / 2.2)); // ~82° -- steer hard around it
+            if (attackContext.checkObstacle(aheadX, aheadZ, this.mesh.position.y, this.moveRadius)) {
+                // Jump over/onto it instead of detouring if what's blocking
+                // the path is actually climbable and within jump range
+                // (getClimbableHeight -- see environment.js -- reuses the
+                // exact same jump-platform/crate system the player's own
+                // jump() does). Falls back to the old steer-around-it
+                // behavior for anything too tall to climb (pillars/beacons)
+                // or while already airborne.
+                const climbHeight = attackContext.getClimbableHeight ? attackContext.getClimbableHeight(aheadX, aheadZ) : null;
+                if (this.isGrounded && climbHeight !== null && climbHeight - this.mesh.position.y <= MAX_ENEMY_JUMP_HEIGHT) {
+                    this.velocityY = ENEMY_JUMP_FORCE;
+                    this.isGrounded = false;
+                } else {
+                    moveDir.applyAxisAngle(new THREE.Vector3(0, 1, 0), this.strafeSign * (Math.PI / 2.2)); // ~82° -- steer hard around it
+                }
             }
 
             const nextX = this.mesh.position.x + moveDir.x * this.speed * deltaTime;
@@ -143,11 +171,11 @@ export class Enemy {
             // against it. checkObstacle() is main.js's collidesWithObstacle().
             // Also clamped to ARENA_LIMIT, same boundary the player's own
             // movement respects.
-            const movedX = nextX > -ARENA_LIMIT && nextX < ARENA_LIMIT && !attackContext.checkObstacle(nextX, this.mesh.position.z, this.moveRadius);
+            const movedX = nextX > -ARENA_LIMIT && nextX < ARENA_LIMIT && !attackContext.checkObstacle(nextX, this.mesh.position.z, this.mesh.position.y, this.moveRadius);
             if (movedX) this.mesh.position.x = nextX;
-            const movedZ = nextZ > -ARENA_LIMIT && nextZ < ARENA_LIMIT && !attackContext.checkObstacle(this.mesh.position.x, nextZ, this.moveRadius);
+            const movedZ = nextZ > -ARENA_LIMIT && nextZ < ARENA_LIMIT && !attackContext.checkObstacle(this.mesh.position.x, nextZ, this.mesh.position.y, this.moveRadius);
             if (movedZ) this.mesh.position.z = nextZ;
-            if (!movedX && !movedZ) this.strafeSign *= -1; // fully stuck this frame 
+            if (!movedX && !movedZ) this.strafeSign *= -1; // fully stuck this frame
         } else {
             // In range. Kiting enemies (retreatRange > 0, see Marksman.js)
             // back away once the player gets too close instead of
@@ -167,11 +195,31 @@ export class Enemy {
             const nextX = this.mesh.position.x + stepDir.x * stepSpeed * deltaTime;
             const nextZ = this.mesh.position.z + stepDir.z * stepSpeed * deltaTime;
 
-            const movedX = nextX > -ARENA_LIMIT && nextX < ARENA_LIMIT && !attackContext.checkObstacle(nextX, this.mesh.position.z, this.moveRadius);
+            const movedX = nextX > -ARENA_LIMIT && nextX < ARENA_LIMIT && !attackContext.checkObstacle(nextX, this.mesh.position.z, this.mesh.position.y, this.moveRadius);
             if (movedX) this.mesh.position.x = nextX;
-            const movedZ = nextZ > -ARENA_LIMIT && nextZ < ARENA_LIMIT && !attackContext.checkObstacle(this.mesh.position.x, nextZ, this.moveRadius);
+            const movedZ = nextZ > -ARENA_LIMIT && nextZ < ARENA_LIMIT && !attackContext.checkObstacle(this.mesh.position.x, nextZ, this.mesh.position.y, this.moveRadius);
             if (movedZ) this.mesh.position.z = nextZ;
             if (!movedX && !movedZ) this.strafeSign *= -1;
+        }
+
+        // --- Vertical physics (jumping / landing / falling) ---
+        // Runs every frame regardless of whether this enemy is currently
+        // airborne -- same as the player's own updateVerticalMovement()
+        // in main.js, and for the same reason: an enemy that walks off
+        // the edge of a platform it jumped onto (chasing a player who
+        // moved away) needs to start falling again on its own, not just
+        // freeze at that height once isGrounded was last set true.
+        this.velocityY += ENEMY_GRAVITY * deltaTime;
+        this.mesh.position.y += this.velocityY * deltaTime;
+        const groundY = attackContext.getGroundHeight
+            ? attackContext.getGroundHeight(this.mesh.position.x, this.mesh.position.z, this.mesh.position.y)
+            : 0;
+        if (this.mesh.position.y <= groundY) {
+            this.mesh.position.y = groundY;
+            this.velocityY = 0;
+            this.isGrounded = true;
+        } else {
+            this.isGrounded = false;
         }
 
         // Same "front = (sin(yaw), cos(yaw))" convention used everywhere

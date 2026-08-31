@@ -48,9 +48,12 @@ export class Weapon {
 
     // Spawns one bullet at `muzzle`'s current world position, aimed
     // along `aimAngle` (radians, same convention as cameraYaw in
-    // main.js), adds it to `scene`, and returns the tracking entry
-    // updateBullets() expects.
-    shoot(scene, muzzle, aimAngle) {
+    // main.js) plus `aimPitch` (radians, positive = upward, same
+    // convention as getAimPitch() in main.js -- defaults to 0 so any
+    // other caller that doesn't care about vertical aim still gets the
+    // old perfectly-level shot), adds it to `scene`, and returns the
+    // tracking entry updateBullets() expects.
+    shoot(scene, muzzle, aimAngle, aimPitch = 0) {
         const bullet = this.createBulletMesh();
 
         // getWorldPosition() converts the muzzle's LOCAL position
@@ -60,7 +63,15 @@ export class Weapon {
         muzzle.getWorldPosition(spawnPos);
         bullet.position.copy(spawnPos);
 
-        const direction = new THREE.Vector3(Math.sin(aimAngle), 0, Math.cos(aimAngle));
+        // Standard yaw+pitch -> direction vector (y-up): cos(pitch)
+        // scales down the horizontal component as the shot tilts more
+        // steeply up/down, sin(pitch) supplies the vertical one -- at
+        // aimPitch = 0 this is exactly the old flat (sin(yaw), 0, cos(yaw)).
+        const direction = new THREE.Vector3(
+            Math.sin(aimAngle) * Math.cos(aimPitch),
+            Math.sin(aimPitch),
+            Math.cos(aimAngle) * Math.cos(aimPitch)
+        );
 
         scene.add(bullet);
 

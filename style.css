@@ -343,15 +343,96 @@ body {
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    gap: 48px;
     background: rgba(20, 0, 0, 0.75);
+    overflow: hidden;
+    animation: overlayBackdropIn 0.4s ease-out;
 }
 
 #game-over.hidden {
     display: none;
 }
 
+/* Same repeating-grid + vignette trick as #main-menu::before, just
+   red-tinted to match the "you died" read instead of the menu's teal --
+   reads as the same HUD/terminal material as the rest of the game
+   instead of a plain flat-color overlay. */
+#game-over::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background:
+        radial-gradient(ellipse at center, rgba(0, 0, 0, 0) 40%, rgba(0, 0, 0, 0.85) 100%),
+        repeating-linear-gradient(0deg, rgba(255, 51, 68, 0.05) 0px, rgba(255, 51, 68, 0.05) 1px, transparent 1px, transparent 40px),
+        repeating-linear-gradient(90deg, rgba(255, 51, 68, 0.05) 0px, rgba(255, 51, 68, 0.05) 1px, transparent 1px, transparent 40px);
+}
+
+/* A single glitchy scanline sweeping top to bottom -- reinforces "SYSTEM
+   OFFLINE" as an actual malfunction rather than just a red tint. */
+.overlay-scan {
+    position: absolute;
+    left: 0;
+    right: 0;
+    height: 3px;
+    pointer-events: none;
+}
+
+.game-over-scan {
+    background: linear-gradient(90deg, transparent, rgba(255, 80, 90, 0.9), transparent);
+    box-shadow: 0 0 12px rgba(255, 51, 68, 0.8);
+    animation: overlayScanSweep 2.6s linear infinite;
+}
+
+/* Sci-fi HUD panel framing shared by both overlays -- four corner
+   brackets drawn entirely with layered backgrounds (no extra markup
+   needed for each corner), in whatever `color` the specific overlay
+   sets via currentColor. */
+.overlay-panel {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 28px;
+    padding: 56px 72px;
+    animation: overlayPanelIn 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+    background-image:
+        linear-gradient(to right, currentColor 2px, transparent 2px),
+        linear-gradient(to right, currentColor 2px, transparent 2px),
+        linear-gradient(to bottom, currentColor 2px, transparent 2px),
+        linear-gradient(to bottom, currentColor 2px, transparent 2px),
+        linear-gradient(to bottom, currentColor 2px, transparent 2px),
+        linear-gradient(to bottom, currentColor 2px, transparent 2px),
+        linear-gradient(to right, currentColor 2px, transparent 2px),
+        linear-gradient(to right, currentColor 2px, transparent 2px);
+    background-repeat: no-repeat;
+    background-size: 28px 2px, 28px 2px, 2px 28px, 2px 28px, 2px 28px, 2px 28px, 28px 2px, 28px 2px;
+    background-position: top left, bottom left, top left, top right, bottom left, bottom right, top right, bottom right;
+    opacity: 0.9;
+}
+
+.game-over-panel {
+    color: #ff3344;
+}
+
+/* Soft pulsing glow behind the panel content, same trick as
+   .victory-glow -- purely atmospheric. */
+.overlay-glow {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 130%;
+    aspect-ratio: 1;
+    transform: translate(-50%, -50%);
+    z-index: -1;
+    animation: overlayGlowPulse 2.6s ease-in-out infinite;
+}
+
+.game-over-glow {
+    background: radial-gradient(circle, rgba(255, 51, 68, 0.3) 0%, rgba(255, 51, 68, 0) 70%);
+}
+
 .game-over-title {
+    position: relative;
     font-family: 'Orbitron', sans-serif;
     font-weight: 900;
     font-size: clamp(2rem, 6vw, 4rem);
@@ -360,6 +441,53 @@ body {
     text-shadow: 0 0 15px rgba(255, 51, 68, 0.8), 0 0 40px rgba(255, 51, 68, 0.4);
     margin: 0;
     text-align: center;
+}
+
+/* Classic CSS glitch-text: two color-split copies of the same label
+   (via attr(data-text), so the markup only has to hold the string
+   once) yanked to opposite sides on a stepped clip-path, flickering in
+   and out -- reads as a broken terminal readout instead of a static title. */
+.game-over-title::before,
+.game-over-title::after {
+    content: attr(data-text);
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+}
+
+.game-over-title::before {
+    color: #00eaff;
+    text-shadow: none;
+    animation: glitchSlice 3.2s infinite linear alternate-reverse;
+    clip-path: polygon(0 2%, 100% 2%, 100% 40%, 0 40%);
+}
+
+.game-over-title::after {
+    color: #ffe600;
+    text-shadow: none;
+    animation: glitchSlice 2.4s infinite linear alternate-reverse;
+    clip-path: polygon(0 60%, 100% 60%, 100% 95%, 0 95%);
+}
+
+.game-over-sub,
+.pause-sub {
+    margin: -18px 0 0;
+    font-family: 'Orbitron', sans-serif;
+    font-weight: 700;
+    font-size: clamp(0.75rem, 1.6vw, 0.95rem);
+    letter-spacing: 0.35em;
+    color: rgba(255, 255, 255, 0.65);
+    text-align: center;
+}
+
+.game-over-stat {
+    margin: 0;
+    font-family: 'Courier New', Courier, monospace;
+    font-size: 1rem;
+    letter-spacing: 0.15em;
+    color: #ffb3ba;
+    text-shadow: 0 0 8px rgba(255, 51, 68, 0.5);
 }
 
 .restart-button {
@@ -384,6 +512,41 @@ body {
 
 .restart-button:active {
     transform: scale(0.97);
+}
+
+/* Shared entrance/atmosphere keyframes -- used by both #game-over and
+   #pause-menu (see .overlay-panel/.overlay-glow/.overlay-scan above).
+   Re-triggering on their own is free: both overlays go from
+   display:none to flex via the .hidden class, and a fresh element
+   entering the render tree always (re)starts its CSS animations. */
+@keyframes overlayBackdropIn {
+    0% { opacity: 0; }
+    100% { opacity: 1; }
+}
+
+@keyframes overlayPanelIn {
+    0% { opacity: 0; transform: scale(0.8); }
+    60% { opacity: 1; }
+    100% { opacity: 0.9; transform: scale(1); }
+}
+
+@keyframes overlayGlowPulse {
+    0%, 100% { opacity: 0.55; transform: translate(-50%, -50%) scale(0.9); }
+    50% { opacity: 1; transform: translate(-50%, -50%) scale(1.12); }
+}
+
+@keyframes overlayScanSweep {
+    0% { top: -4%; opacity: 0; }
+    10%, 90% { opacity: 1; }
+    100% { top: 104%; opacity: 0; }
+}
+
+@keyframes glitchSlice {
+    0%, 92%, 100% { transform: translate(0, 0); opacity: 0; }
+    93% { transform: translate(-4px, 1px); opacity: 0.85; }
+    95% { transform: translate(3px, -1px); opacity: 0.85; }
+    97% { transform: translate(-2px, 0); opacity: 0.85; }
+    98% { transform: translate(0, 0); opacity: 0; }
 }
 
 /* ============================================================
@@ -491,12 +654,35 @@ body {
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    gap: 48px;
     background: rgba(0, 15, 15, 0.75);
+    overflow: hidden;
+    animation: overlayBackdropIn 0.4s ease-out;
 }
 
 #pause-menu.hidden {
     display: none;
+}
+
+/* Same repeating-grid + vignette trick as #main-menu::before -- keeps
+   the pause screen reading as the same HUD material as the rest of the
+   game's UI instead of a plain flat-color overlay. */
+#pause-menu::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background:
+        radial-gradient(ellipse at center, rgba(0, 0, 0, 0) 40%, rgba(0, 0, 0, 0.8) 100%),
+        repeating-linear-gradient(0deg, rgba(0, 255, 204, 0.045) 0px, rgba(0, 255, 204, 0.045) 1px, transparent 1px, transparent 40px),
+        repeating-linear-gradient(90deg, rgba(0, 255, 204, 0.045) 0px, rgba(0, 255, 204, 0.045) 1px, transparent 1px, transparent 40px);
+}
+
+.pause-panel {
+    color: #00ffcc;
+}
+
+.pause-glow {
+    background: radial-gradient(circle, rgba(0, 255, 204, 0.28) 0%, rgba(0, 255, 204, 0) 70%);
 }
 
 .pause-title {
