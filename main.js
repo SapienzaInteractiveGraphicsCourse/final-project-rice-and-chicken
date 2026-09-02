@@ -996,6 +996,35 @@ function collidesWithObstacle(x, z, y, entityRadius) {
     return false;
 }
 
+// Directly pushes `position` (a THREE.Vector3 -- player.position or an
+// enemy's mesh.position) straight back out of any obstacle it's still
+// overlapping, by exactly the overlap amount. Called every frame AFTER
+// the normal per-axis movement above (see updateGame()/Enemy.js's
+// update()), which only ever produces a sideways slide if the MOVEMENT
+// INPUT driving it already had a sideways component -- walking in a
+// single straight line (just "W", say, no diagonal) directly at an
+// obstacle has none, and the two per-axis attempts alone both just
+// fail with nowhere to go, so the walker stops dead against it with no
+// way to slide free. This is a plain circle-vs-circle depenetration
+// instead: it doesn't care what direction anyone was trying to move in,
+// it just guarantees nobody is ever left stuck exactly on an obstacle's
+// boundary -- there's always a way out, straight back along the line
+// from the obstacle's own center.
+function resolveObstaclePenetration(position, entityRadius) {
+    for (const obstacle of environmentObstacles) {
+        if (obstacle.topY !== undefined && position.y >= obstacle.topY - 0.3) continue;
+        const dx = position.x - obstacle.x;
+        const dz = position.z - obstacle.z;
+        const minDist = obstacle.radius + entityRadius;
+        const dist = Math.hypot(dx, dz);
+        if (dist > 0 && dist < minDist) {
+            const push = (minDist - dist) / dist;
+            position.x += dx * push;
+            position.z += dz * push;
+        }
+    }
+}
+
 // True if a bullet at (x, z, y) has flown into the solid body of any
 // environment obstacle -- called every frame from updateBullets()/
 // updateEnemyBullets() below so shots actually stop at crates/pillars/
@@ -1074,6 +1103,15 @@ function updateGame(deltaTime) {
     if (nextZ > -limit && nextZ < limit && !collidesWithObstacle(player.position.x, nextZ, player.position.y, playerCollisionRadius)) {
         player.position.z = nextZ;
     }
+
+    // Belt-and-suspenders against getting stuck (see
+    // resolveObstaclePenetration() above): the per-axis sliding just
+    // above only helps when the input itself has a sideways component,
+    // so this directly guarantees a way out regardless of which way the
+    // player was actually trying to walk.
+    resolveObstaclePenetration(player.position, playerCollisionRadius);
+    player.position.x = Math.max(-limit, Math.min(limit, player.position.x));
+    player.position.z = Math.max(-limit, Math.min(limit, player.position.z));
 
     const isMoving = moveForward !== 0 || moveRight !== 0;
 
@@ -1681,6 +1719,12 @@ function updateEnemies(deltaTime) {
         playerPosition: player.position,
         playerVelocity,
         checkObstacle: collidesWithObstacle, // lets Enemy.update() (enemies/Enemy.js) avoid crates/pillars, same check the player's own movement uses
+        // Same "push straight back out of whatever's still overlapped"
+        // depenetration the player's own updateGame() applies -- lets an
+        // enemy that got stuck (its own obstacle-avoidance steering, see
+        // Enemy.js, mostly prevents this, but not for every approach
+        // angle) actually get free again instead of just sitting there.
+        resolvePenetration: resolveObstaclePenetration,
         // Both reused from the exact same jump-platform/crate system the
         // player's own jump() uses (see environment.js) -- getGroundHeight
         // is for landing/gravity once an enemy is airborne, getClimbableHeight

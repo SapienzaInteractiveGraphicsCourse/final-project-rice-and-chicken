@@ -227,6 +227,20 @@ export class Enemy {
             if (!movedX && !movedZ) this.strafeSign *= -1;
         }
 
+        // Belt-and-suspenders against getting stuck (see
+        // resolveObstaclePenetration() in main.js): the per-axis sliding
+        // just above, and the look-ahead steering further up, both only
+        // ever help when there's some sideways room to work with -- this
+        // directly guarantees a way out regardless of approach angle.
+        if (attackContext.resolvePenetration) {
+            attackContext.resolvePenetration(this.mesh.position, this.moveRadius);
+            // The push above ignores the arena boundary (it only knows
+            // about obstacles) -- re-clamp in case it happened to shove
+            // an enemy stuck near the edge past it.
+            this.mesh.position.x = Math.max(-ARENA_LIMIT, Math.min(ARENA_LIMIT, this.mesh.position.x));
+            this.mesh.position.z = Math.max(-ARENA_LIMIT, Math.min(ARENA_LIMIT, this.mesh.position.z));
+        }
+
         // --- Vertical physics (jumping / landing / falling) ---
         // Runs every frame regardless of whether this enemy is currently
         // airborne -- same as the player's own updateVerticalMovement()
