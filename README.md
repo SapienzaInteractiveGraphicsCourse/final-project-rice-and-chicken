@@ -10,14 +10,14 @@
 - **Surname:** Cosimi
 - **Student ID (Matricola):** 2278125
 - **GitHub Repository:** (https://github.com/SapienzaInteractiveGraphicsCourse/final-project-rice-and-chicken.git)
-- **Live Demo (GitHub Pages):** 👉 
+- **Live Demo (GitHub Pages):** 👉 [Play now] (https://sapienzainteractivegraphicscourse.github.io/final-project-rice-and-chicken/)
 
 ---
 
 ## 🎮 Project Description
 **Dimension Shift: Sci-Fi Arena** is a 3D third-person shooter with a movable camera, built entirely using **Three.js** (WebGL). The player controls a character inside a dynamic arena and must survive waves of incoming enemies.
 
-The core mechanic of the game is the **Dimension Shift**: by pressing TAB, the entire arena instantly changes its geometry and aesthetic style, shifting from a **Low-Poly/Toon (Cartoon)** look to a **Realistic (PBR - Physically Based Rendering)** style. This feature goes beyond visuals, dynamically altering material properties and lighting calculations directly on the GPU.
+The core mechanic of the game is the **Dimension Shift**: by pressing TAB, the entire arena instantly changes its geometry and aesthetic style, shifting from a **Realistic (PBR - Physically Based Rendering)** style look to a **Low-Poly/Toon (Cartoon)** style. This feature goes beyond visuals, dynamically altering material properties and lighting calculations directly on the GPU.
 
 ## 🚀 How to Run the Project Locally
 
