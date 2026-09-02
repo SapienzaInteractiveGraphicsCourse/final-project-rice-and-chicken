@@ -23,7 +23,7 @@ export class SniperRifle extends Weapon {
     constructor() {
         super({
             fireRate: 1.1,
-            bulletSpeed: 90,
+            bulletSpeed: 130, 
             bulletLifetime: 2.2,
             damage: 45,             // slow fire rate, but hits hard enough to nearly one-shot most enemies
             bulletRadius: 0.09,

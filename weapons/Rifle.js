@@ -22,7 +22,7 @@ export class Rifle extends Weapon {
     constructor() {
         super({
             fireRate: 0.2,          // seconds between shots (lower = faster fire rate)
-            bulletSpeed: 40,        // units per second
+            bulletSpeed: 60,        
             bulletLifetime: 1.5,    // seconds before a bullet is removed, even if it hit nothing
             damage: 10,             // fast fire rate makes up for the modest per-shot damage
             bulletColor: 0xffaa00,

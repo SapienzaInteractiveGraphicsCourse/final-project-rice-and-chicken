@@ -18,7 +18,7 @@ export class Pistol extends Weapon {
     constructor() {
         super({
             fireRate: 0.35,
-            bulletSpeed: 55,
+            bulletSpeed: 75, 
             bulletLifetime: 1.0,
             damage: 7,
             bulletRadius: 0.06,

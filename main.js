@@ -107,10 +107,15 @@ let bullets = [];
 let shotCooldown = 0;          // counts down to 0, then the player can fire again
 
 // --- Aim indicator ---
-// A diegetic aiming aid: a thin beam + end marker showing exactly where
-// the NEXT shot will land -- see createAimIndicator()/updateAimIndicator()
-// below). Built once in init(), repositioned every frame in updateGame().
-let aimBeam, aimMarker;
+// A plain 2D HUD crosshair (#crosshair in index.html), always dead
+// center on screen -- see updateAimIndicator() below, which just toggles
+// its "hit" CSS class depending on whether an enemy is currently under
+// it. A 3D world-space beam/marker used to do this job instead, but a
+// screen-space crosshair is simpler AND more honest: it's the camera's
+// own screen center by construction, so it can never visually disagree
+// with "where you're looking" the way a beam drawn from the (slightly
+// off-camera) muzzle could at close range.
+const crosshairEl = document.getElementById('crosshair');
 
 // Glowing rings around the player's feet, shown only while the
 // strength buff (see powerups/StrengthPickup.js) is active. Built once
@@ -229,84 +234,30 @@ const gravity = -25;           // units per second^2 (negative = pulls down)
 const jumpForce = 10;          // initial upward velocity when jumping
 
 // --- Mouse-controlled camera ---
-// The camera orbits the player at a constant distance, driven by yaw
-// (left/right) and pitch (up/down) angles that the mouse updates.
+// orbit-camera design: the camera sits at
+// (cameraYaw, cameraPitch, cameraDistance) in spherical coordinates
+// around a pivot point near the player, and always looks back at that
+// SAME pivot -- see updateCamera(). This is what actually gives a good
+// sense of scale (character AND environment both comfortably in view,
+// from a bit above and behind)
+
 let cameraYaw = 0;
-const defaultCameraPitch = Math.asin(0.6); // ~0.6435 rad -- the resting camera position, untouched by mouse input
-let cameraPitch = defaultCameraPitch;
-const cameraDistance = 10;
+let cameraPitch = Math.asin(0.6); // ~0.6435 rad -- same comfortable resting angle the original camera used
+const cameraDistance = 7; 
+// Eye/head height (see createPlayer(): the head sits at about 1.67) --
+// used for BOTH the orbit's center and its look-at target (see above).
+const cameraPivotHeight = 1.6;
+
+const cameraShoulderRight = 1.2;
+const cameraShoulderDown = 0.5;
 const mouseSensitivity = 0.0025;
-const minPitch = 0.25; // radians (~14°) -- fairly level, avoids an almost-flat view
-const maxPitch = 0.85; // radians (~49°) -- a comfortable "over the shoulder" max, avoids a jarring near-top-down swing
-
-// --- Vertical aim (shooting up/down) ---
-// Directly mouse-driven, like aiming in any other shooter -- NOT
-// derived from cameraPitch's own current value/range . manualAimPitch instead starts at exactly 0
-// and is nudged directly by the same mouse-Y input as cameraPitch (see
-// the mousemove listener in init()), completely independently of it 
-let manualAimPitch = 0;
-const maxAimUpAngle = 0.5;    // radians (~29°)
-const maxAimDownAngle = 0.6;  // radians (~34°)
-const aimMouseScale = 1.5;    // how strongly mouse-Y drives aim, relative to mouseSensitivity
-
-// Light assist on top of the manual aim above: if whatever the player
-// is ALREADY roughly pointing at (manually) happens to have an enemy
-// on that line, blend the target a bit further toward the exact angle
-// that would actually hit it, instead of leaving the player to line up
-// the last few degrees by hand. autoAimAssistStrength is how much of
-// that correction gets applied (0 = pure manual, 1 = fully snaps to
-// the target) -- kept low since this is meant to be a light nudge, not
-// a full auto-lock.
-const autoAimAssistStrength = 0.3;
-const autoAimTolerance = 0.35; // extra leeway (world units) added to hitRadius when checking if an enemy is "roughly" lined up
-
-// The CURRENT vertical aim angle actually used for shooting/the torso
-// tilt/the aim beam (radians, positive = upward) -- see updateAimPitch()
-// below. Kept as smoothed state rather than the raw per-frame target so
-// the assist blending in/out (an enemy entering/leaving the aim line)
-// eases instead of snapping.
-let aimPitch = 0;
-const aimPitchSmoothRate = 12; // higher = catches up to the target faster (snappier), lower = laggier/smoother
-
-// Called once per frame from updateGame() (deltaTime needed for
-// frame-rate-independent smoothing) -- moves the shared `aimPitch`
-// state a fraction of the way toward manualAimPitch, lightly pulled
-// toward a locked-on enemy's real angle if one's currently lined up.
-function updateAimPitch(deltaTime) {
-    let targetAimPitch = manualAimPitch;
-
-    const origin = new THREE.Vector3();
-    player.userData.muzzle.getWorldPosition(origin);
-    const dirX = Math.sin(cameraYaw);
-    const dirZ = Math.cos(cameraYaw);
-
-    // Same closest-along-the-ray search as updateAimIndicator()'s XZ
-    // test -- finds the nearest enemy (if any) whose footprint the
-    // CURRENT horizontal aim direction actually passes near.
-    let bestT = Infinity;
-    let lockedAngle = null;
-    for (const enemy of enemies) {
-        const ex = enemy.mesh.position.x - origin.x;
-        const ez = enemy.mesh.position.z - origin.z;
-        const t = ex * dirX + ez * dirZ;
-        if (t <= 0.5 || t >= bestT) continue; // ignore anything behind the muzzle or farther than the current best candidate
-
-        const perpDist = Math.hypot(ex - dirX * t, ez - dirZ * t);
-        if (perpDist >= enemy.hitRadius + autoAimTolerance) continue;
-
-        bestT = t;
-        const enemyCenterY = enemy.mesh.position.y + enemy.hitRadius; // rough body-center approximation, same one used elsewhere
-        lockedAngle = Math.max(-maxAimDownAngle, Math.min(maxAimUpAngle, Math.atan2(enemyCenterY - origin.y, t)));
-    }
-    if (lockedAngle !== null) {
-        targetAimPitch = THREE.MathUtils.lerp(manualAimPitch, lockedAngle, autoAimAssistStrength);
-    }
-
-    // Exponential smoothing (1 - e^-kt) -- frame-rate independent, unlike
-    // a fixed per-frame lerp fraction which would move faster at higher fps.
-    const smoothing = 1 - Math.exp(-aimPitchSmoothRate * deltaTime);
-    aimPitch += (targetAimPitch - aimPitch) * smoothing;
-}
+// True right after Pointer Lock is (re)acquired, until the next mousemove
+// event consumes and clears it -- see the pointerlockchange/mousemove
+// listeners in init(). Works around a browser quirk where that first
+// event's movementX/movementY isn't a real mouse gesture.
+let ignoreNextMouseDelta = false;
+const minPitch = -0.3; // radians (~-17°) -- lets you tilt the view (and shots) somewhat upward, e.g. at an enemy standing on a jump-platform
+const maxPitch = 0.85; // radians (~49°) -- same generous downward range the original camera always had
 
 // --- Menu character-preview rotation ---
 // True while the left mouse button is held down over the menu (see the
@@ -494,7 +445,7 @@ function createPlayer(playerClass) {
     playerGroup.userData.rightLeg = rightLeg;
     playerGroup.userData.head = head;
     playerGroup.userData.gun = gun;
-    playerGroup.userData.muzzle = gun.userData.muzzle; // barrel tip, used as the bullet spawn point
+    playerGroup.userData.muzzle = gun.userData.muzzle; // barrel tip -- kept as a marker of where the gun visually is, though bullets themselves now spawn from getBulletSpawnPoint() instead (see shootBullet()), not from here
     playerGroup.userData.playerClass = playerClass; // so switchWeapon() knows this class's loadout
 
     return playerGroup;
@@ -658,8 +609,7 @@ function initMenu() {
         pauseMenuEl.classList.add('hidden');
         gameOverEl.classList.add('hidden');
         victoryBannerEl.classList.remove('visible');
-        aimBeam.visible = true;
-        aimMarker.visible = true;
+        crosshairEl.classList.add('visible');
         strengthAura.visible = false; // only turned on again once a strength pickup is actually collected
 
         gameStarted = true;
@@ -732,7 +682,7 @@ function init() {
     // PerspectiveCamera(fov, aspectRatio, near, far)
     // fov = field of view in degrees, near/far = clipping distances
     // (anything closer than "near" or farther than "far" won't be drawn)
-    camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
+    camera = new THREE.PerspectiveCamera(63, window.innerWidth / window.innerHeight, 0.1, 1000);
 
     // --- Renderer setup ---
     // This creates the actual <canvas> element and draws to it.
@@ -849,7 +799,6 @@ function init() {
     player = createPlayer(playerClasses[currentClassIndex]);
     scene.add(player);
 
-    createAimIndicator();
     createStrengthAura();
 
     // Hands Dimension Shift every scene-level reference it needs (see
@@ -903,20 +852,21 @@ function init() {
             return;
         }
 
+        // Known Pointer Lock quirk: the FIRST mousemove event right after
+        // the lock is acquired often reports a large, bogus movementX/
+        // movementY (browsers differ on exactly what it reflects, but it's
+        // not a real mouse gesture) -- see ignoreNextMouseDelta, set by
+        // the pointerlockchange listener below whenever the lock is newly
+        // acquired. Skipping that one event is what stops it from
+        // yanking the view/aim on the very first frame.
+        if (ignoreNextMouseDelta) {
+            ignoreNextMouseDelta = false;
+            return;
+        }
+
         cameraYaw -= e.movementX * mouseSensitivity;
         cameraPitch += e.movementY * mouseSensitivity;
-        // Clamp so the camera can't flip upside down or dive underground
         cameraPitch = Math.max(minPitch, Math.min(maxPitch, cameraPitch));
-
-        // Vertical aim (see manualAimPitch/updateAimPitch() above) --
-        // completely separate from cameraPitch just above, own state and
-        // own clamped range. Sign is INVERTED relative to cameraPitch's
-        // own update on purpose: e.movementY is positive when the mouse
-        // moves DOWN, and standard shooter convention is mouse up (=
-        // movementY negative) tilts the shot UP, so this subtracts
-        // instead of adding.
-        manualAimPitch -= e.movementY * mouseSensitivity * aimMouseScale;
-        manualAimPitch = Math.max(-maxAimDownAngle, Math.min(maxAimUpAngle, manualAimPitch));
     });
 
     // Pointer Lock exit -- fires both when WE call exitPointerLock()
@@ -929,7 +879,11 @@ function init() {
     // false BEFORE calling exitPointerLock(), so a real death never
     // reaches this branch -- see triggerGameOver()).
     document.addEventListener('pointerlockchange', () => {
-        if (document.pointerLockElement !== renderer.domElement && gameStarted) {
+        if (document.pointerLockElement === renderer.domElement) {
+            // Lock just (re)acquired -- see ignoreNextMouseDelta above,
+            // consumed by the very next mousemove event.
+            ignoreNextMouseDelta = true;
+        } else if (gameStarted) {
             gamePaused = true;
             pauseMenuEl.classList.remove('hidden');
         }
@@ -1071,8 +1025,6 @@ function bulletBlockedByObstacle(x, z, y) {
 // Reads current input state and moves the player accordingly.
 // ============================================================
 function updateGame(deltaTime) {
-    updateAimPitch(deltaTime); // smoothly catch `aimPitch` up to wherever the player is currently looking -- see its definition above
-
     // Build a movement input in LOCAL terms first: how much forward/back
     // and how much left/right, independent of any world direction.
     let moveForward = 0; // +1 = W (forward), -1 = S (backward)
@@ -1170,18 +1122,21 @@ function updateGame(deltaTime) {
     // no more full 180° torso twists.
     player.userData.torso.rotation.y = cameraYaw - player.rotation.y;
 
-    // Tilts the torso/gun up or down to hint at the current (smoothed)
-    // vertical aim -- see aimPitch/updateAimPitch() above and
-    // shootBullet()/updateAimIndicator() below, which use the FULL
-    // aimPitch for the actual shot direction/aim beam. The torso mesh's
-    // own pivot sits at its geometric center rather than at a hip/neck
-    // joint (there's no separate waist bone to bend at), so rotating it
-    // by the full angle reads as the whole block pivoting oddly around
-    // its middle instead of a natural lean -- toning the VISUAL tilt
-    // down (torsoTiltFactor) keeps the pose readable without the shot
-    // itself losing any accuracy, since that still uses aimPitch directly.
+    // Tilts the torso/gun up or down to hint at the current look/aim
+    // pitch -- see shootBullet()/updateAimIndicator() below, which aim
+    // toward the camera's own crosshair point rather than using this
+    // angle directly, so this is purely cosmetic and can't desync the
+    // actual shot. Sign is INVERTED relative to cameraPitch: positive
+    // cameraPitch means the camera sits higher and looks further DOWN
+    // (see updateCamera()), so the torso needs the opposite sign to
+    // lean the same way the camera is actually looking. The torso
+    // mesh's own pivot sits at its geometric center rather than at a
+    // hip/neck joint (there's no separate waist bone to bend at), so
+    // rotating it by the full angle reads as the whole block pivoting
+    // oddly around its middle instead of a natural lean -- toning the
+    // VISUAL tilt down (torsoTiltFactor) keeps the pose readable.
     const torsoTiltFactor = 0.45;
-    player.userData.torso.rotation.x = aimPitch * torsoTiltFactor;
+    player.userData.torso.rotation.x = -cameraPitch * torsoTiltFactor;
 
     // --- Walk-direction sign ---
     // animateWalk()'s swing is just a function of elapsed time, so on its
@@ -1223,7 +1178,7 @@ function updateGame(deltaTime) {
         if (!currentWeapon.automatic) shotFiredThisPress = true;
     }
 
-    updateAimIndicator(deltaTime); // redraw the aim beam/marker for wherever the next shot would actually go
+    updateAimIndicator(); // light up the crosshair if it's currently over an enemy
 
     // --- Strength buff countdown ---
     if (strengthBuffTimer > 0) {
@@ -1312,19 +1267,124 @@ function animateWalk(isMoving, deltaTime, walkDirSign = 1) {
     rightArm.rotation.x = swing; // opposite to right leg, matches left leg's phase
 }
 
+// How far out along the camera's forward ray to aim when nothing's
+// actually under the crosshair (see getCrosshairTarget() below) -- a
+// plausible mid-combat distance, NOT an arbitrary "very far away" point.
+const DEFAULT_AIM_DISTANCE = 20;
+// How far out to actually LOOK for an enemy to lock the aim onto --
+// wider than DEFAULT_AIM_DISTANCE, past the arena's own spawn ring
+// (arenaSpawnRadius), so a distant enemy still under the crosshair gets
+// aimed at correctly instead of falling back to the shorter default
+// (which would aim short of them, right where nothing actually is).
+const AIM_SEARCH_DISTANCE = 40;
+
+// `fromPos` is ALWAYS the actual muzzle/spawn point (see
+// getBulletSpawnPoint()), even when this is called from
+// getCrosshairTarget()'s camera-based search below -- travel time has
+// to come from where the real bullet actually starts, not from
+// wherever the search itself happens to be looking from. The camera
+// sits a fixed several units behind the player regardless of how close
+// an enemy is TO the player, so using the camera's own distance here
+// would badly overestimate travel time for anything in melee range
+// (and, with it, how far to lead them) -- the shot would aim well past
+// a close, strafing enemy since it "expects" a much longer flight than
+// the short hop the real muzzle-to-target distance actually is.
+function predictEnemyPosition(enemy, fromPos, bulletSpeed) {
+    const travelTime = enemy.mesh.position.distanceTo(fromPos) / bulletSpeed;
+    return enemy.mesh.position.clone().addScaledVector(enemy.velocity, travelTime);
+}
+
+// Returns the world-space point the crosshair (screen center) is
+// CURRENTLY resting on -- the closest enemy actually lined up under it
+// (leading its predicted position, see predictEnemyPosition() above),
+// if any, otherwise a point DEFAULT_AIM_DISTANCE out along the camera's
+// own forward ray. `bulletSpeed` is the currently-equipped weapon's --
+// needed to estimate travel time for that leading. Shared by
+// shootBullet() and updateAimIndicator() below: aiming a weapon FROM
+// its muzzle TOWARD this point (rather than just firing along some
+// angle) is what makes the shot match the crosshair, regardless of the
+// muzzle's own offset from the camera -- same "aim toward a target
+// point" technique Boss.js's onAttack() already uses via leadTarget(),
+// just sourced from the camera instead of the player's position.
+// Targeting whatever's actually under the crosshair (rather than always
+// a fixed far point) matters BECAUSE of that same muzzle/camera offset:
+// with the over-the-shoulder framing (see updateCamera()) the two are
+// now a couple of units apart, so a FIXED far-away target only pulls
+// the muzzle's aim into line with the crosshair by the time the shot is
+// nearly at that point -- at any normal combat range well short of it,
+// the shot would still look like it's just travelling straight out of
+// the barrel instead of visibly converging on the crosshair. Aiming at
+// whatever's actually close by under the crosshair fixes that at the
+// range that's actually relevant.
+function getCrosshairTarget(bulletSpeed) {
+    const camPos = camera.position;
+    const camDir = new THREE.Vector3();
+    camera.getWorldDirection(camDir);
+    // For travel-time purposes ONLY (see predictEnemyPosition()) -- the
+    // ray search just below still starts from the camera, matching the
+    // crosshair; this is just about how far to lead a moving target.
+    const spawnPos = getBulletSpawnPoint();
+
+    let closestT = AIM_SEARCH_DISTANCE;
+    let hitPoint = null;
+    for (const enemy of enemies) {
+        const predicted = predictEnemyPosition(enemy, spawnPos, bulletSpeed);
+        const ex = predicted.x - camPos.x;
+        const ez = predicted.z - camPos.z;
+        const t = ex * camDir.x + ez * camDir.z; // distance along the ray to this enemy's closest approach (XZ)
+        if (t < 0 || t > closestT) continue;
+
+        const perpDist = Math.hypot(ex - camDir.x * t, ez - camDir.z * t);
+        if (perpDist >= enemy.hitRadius) continue;
+
+        // Also confirm the ray is actually near this enemy's body height
+        // at that point, not just lined up in XZ -- same body-center
+        // approximation used everywhere else (see updateAimIndicator()).
+        // The tolerance is a generous FLOOR, not just hitRadius, for a
+        // structural reason: the camera always looks at a fixed point on
+        // the player (see updateCamera()) regardless of pitch, so at
+        // roughly the player's OWN distance -- exactly where a melee
+        // attacker standing right next to them sits -- the ray's height
+        // is locked close to that fixed point (head height) no matter
+        // how the player aims; pitching up/down barely moves it at that
+        // specific depth. A short, ground-level enemy's own center sits
+        // well below that, so a tolerance of just their hitRadius would
+        // almost never actually reach them at melee range, no matter how
+        // well-aimed the shot looks 
+        const enemyCenterY = predicted.y + enemy.hitRadius;
+        const rayY = camPos.y + camDir.y * t;
+        const verticalTolerance = Math.max(enemy.hitRadius, 1.3);
+        if (Math.abs(rayY - enemyCenterY) > verticalTolerance) continue;
+
+        closestT = t;
+        // The enemy's own actual (predicted) center -- 
+        hitPoint = new THREE.Vector3(predicted.x, enemyCenterY, predicted.z);
+    }
+
+    return hitPoint ?? camPos.clone().addScaledVector(camDir, DEFAULT_AIM_DISTANCE);
+}
+
+
+function getBulletSpawnPoint() {
+    const spawnPos = new THREE.Vector3();
+    player.userData.muzzle.getWorldPosition(spawnPos);
+    return spawnPos;
+}
+
 // ============================================================
 // SHOOTING
-// Delegates to the current weapon's own shoot() (see Weapon.js):
-// it builds the bullet mesh, spawns it at the gun's muzzle, and
-// aims it along the direction the camera is aiming (cameraYaw).
-// player.rotation.y drives the LEGS (movement direction), while
-// the torso/gun stay aimed at cameraYaw (see updateGame) -- so
-// shooting always follows where you're actually aiming, not where
-// you're walking.
+// Delegates to the current weapon's own shoot() (see Weapon.js): it
+// builds the bullet mesh, spawns it at the gun's actual muzzle (see
+// getBulletSpawnPoint() above) and aims it toward the crosshair (see
+// getCrosshairTarget() above) -- so shooting always lands exactly where
+// the camera is looking, whether that's dead ahead, up at something on
+// a platform, or down at something below. The shot's path is a straight
+// LINE the entire way (see Weapon.shoot()/updateBullets()) -- velocity
+// is computed once, right here, and never touched again after that.
 // ============================================================
 function shootBullet() {
     const weapon = player.userData.playerClass.weapons[currentWeaponIndex];
-    const bulletEntry = weapon.shoot(scene, player.userData.muzzle, cameraYaw, aimPitch);
+    const bulletEntry = weapon.shoot(scene, getBulletSpawnPoint(), getCrosshairTarget(weapon.bulletSpeed));
     // Strength buff (see powerups/StrengthPickup.js) temporarily hits harder.
     if (strengthBuffTimer > 0) bulletEntry.damage = Math.round(bulletEntry.damage * strengthDamageMultiplier);
     bullets.push(bulletEntry);
@@ -1342,6 +1402,10 @@ function updateBullets(deltaTime) {
         const b = bullets[i];
         b.mesh.position.addScaledVector(b.velocity, deltaTime);
         b.age += deltaTime;
+        // Keep the trailing tracer streak (see Weapon.js) glued directly
+        // behind the bullet, along its own fixed direction of travel --
+        // this is what makes the straight-line path plainly visible.
+        b.tracer.position.copy(b.mesh.position).add(b.tracerOffset);
 
         const pos = b.mesh.position;
         const hitGround = pos.y <= getGroundHeightAt(environmentObstacles, pos.x, pos.z, pos.y);
@@ -1349,6 +1413,7 @@ function updateBullets(deltaTime) {
 
         if (b.age > b.lifetime || hitGround || hitWall || bulletBlockedByObstacle(pos.x, pos.z, pos.y)) {
             scene.remove(b.mesh); // stop rendering it
+            scene.remove(b.tracer);
             bullets.splice(i, 1); // remove it from our tracking array
         }
     }
@@ -1356,115 +1421,56 @@ function updateBullets(deltaTime) {
 
 // ============================================================
 // AIM INDICATOR
-// A diegetic aiming aid instead of a flat 2D crosshair: a thin glowing
-// beam plus an end marker, both repositioned every frame along the
-// EXACT same ray Weapon.shoot() actually fires along -- same origin
-// (muzzle world position) and direction (cameraYaw), see Weapon.js.
-// Because it's driven by the real shot math instead of a fixed screen
-// position, it's always truthful about where the next bullet goes, and
-// the marker flags a guaranteed hit before you even pull the trigger.
+// #crosshair (index.html) is a plain 2D HUD element, permanently dead
+// center on screen via CSS -- nothing to position here. All this does
+// each frame is the same ray-vs-enemy test the old 3D beam used, along
+// the EXACT same ray Weapon.shoot() actually fires along (see
+// getBulletSpawnPoint()/getCrosshairTarget() above shootBullet(), in
+// Weapon.js), and toggles the crosshair's "hit" CSS class depending on
+// whether an enemy is currently under it -- a lit-up crosshair means
+// the next shot lands.
 // ============================================================
-function createAimIndicator() {
-    // Unit-height cylinder, stretched via scale.y and rotated via
-    // quaternion every frame to span from the muzzle to the impact
-    // point (see updateAimIndicator()).
-    const beamGeo = new THREE.CylinderGeometry(0.025, 0.025, 1, 6);
-    const beamMat = new THREE.MeshStandardMaterial({
-        transparent: true,
-        opacity: 0.5,
-        depthWrite: false // a half-see-through beam shouldn't hide the enemy/marker it's pointing at
-    });
-    aimBeam = new THREE.Mesh(beamGeo, beamMat);
-    aimBeam.frustumCulled = false; // its footprint changes every frame as it stretches -- skip culling rather than fight stale bounds
-    aimBeam.visible = false; // shown once PLAY is pressed -- see the play-button handler
-    scene.add(aimBeam);
-
-    // Small glowing marker right at the impact point -- grows and turns
-    // white when it currently lands on an enemy, a clear "this will hit"
-    // signal at a glance, on top of just tracing the shot's path.
-    const markerGeo = new THREE.OctahedronGeometry(0.12, 0);
-    const markerMat = new THREE.MeshStandardMaterial({ emissiveIntensity: 2.2 });
-    aimMarker = new THREE.Mesh(markerGeo, markerMat);
-    aimMarker.frustumCulled = false;
-    aimMarker.visible = false;
-    scene.add(aimMarker);
-}
-
-// Called every frame from updateGame(). Casts the same ray Weapon.shoot()
-// would fire along, tests it against every enemy with the same
-// ray-vs-circle math updateEnemies() uses for real bullet hits, then redraws the beam/marker to match.
-function updateAimIndicator(deltaTime) {
+function updateAimIndicator() {
     const weapon = player.userData.playerClass.weapons[currentWeaponIndex];
 
-    const origin = new THREE.Vector3();
-    player.userData.muzzle.getWorldPosition(origin);
+    const origin = getBulletSpawnPoint();
+    const direction = new THREE.Vector3().subVectors(getCrosshairTarget(weapon.bulletSpeed), origin).normalize();
 
-    // Full 3D direction now (see aimPitch/updateAimPitch() above) -- at
-    // aimPitch = 0 this is exactly the old flat (sin(yaw), 0, cos(yaw)).
-    const dirX = Math.sin(cameraYaw) * Math.cos(aimPitch);
-    const dirY = Math.sin(aimPitch);
-    const dirZ = Math.cos(cameraYaw) * Math.cos(aimPitch);
+    // Never claims a longer reach than this weapon's own bullets actually have.
+    const maxDistance = weapon.bulletSpeed * weapon.bulletLifetime;
 
-    // Never claims a longer reach than this weapon's own bullets actually
-    // have (see Weapon.shoot()/updateBullets()), capped to the same ring
-    // distance enemies spawn at (arenaSpawnRadius) so it never trails off
-    // into empty space past where an enemy could even be standing.
-    const maxDistance = Math.min(weapon.bulletSpeed * weapon.bulletLifetime, arenaSpawnRadius);
-
-    let hitDistance = maxDistance;
     let hitEnemy = false;
     for (const enemy of enemies) {
-        const ex = enemy.mesh.position.x - origin.x;
-        const ez = enemy.mesh.position.z - origin.z;
-        const t = ex * dirX + ez * dirZ; // distance along the ray to this enemy's closest approach (XZ)
-        if (t < 0 || t > hitDistance) continue;
+        // Same leading as getCrosshairTarget() above -- keeps this "will
+        // it land" cue consistent with what actually happens: a strafing
+        // enemy currently dead under the crosshair but about to step out
+        // from under a slow shot shouldn't light up as a sure hit.
+        const predicted = predictEnemyPosition(enemy, origin, weapon.bulletSpeed);
+        const ex = predicted.x - origin.x;
+        const ez = predicted.z - origin.z;
+        const t = ex * direction.x + ez * direction.z; // distance along the ray to this enemy's closest approach (XZ)
+        if (t < 0 || t > maxDistance) continue;
 
-        const perpDist = Math.hypot(ex - dirX * t, ez - dirZ * t);
+        const perpDist = Math.hypot(ex - direction.x * t, ez - direction.z * t);
         if (perpDist >= enemy.hitRadius) continue;
 
-        // The ray can now travel up/down too (see aimPitch above) -- also
-        // confirm it's actually near this enemy's body height at that
-        // point along its path, not just lined up in XZ. Enemies are
-        // rooted at their feet (mesh.position.y), so their body's rough
-        // vertical center sits about one hitRadius above that -- same
-        // approximation used for the real bullet-hit check below.
-        const enemyCenterY = enemy.mesh.position.y + enemy.hitRadius;
-        const rayY = origin.y + dirY * t;
-        if (Math.abs(rayY - enemyCenterY) > enemy.hitRadius) continue;
+        // Also confirm the ray is actually near this enemy's body height
+        // at that point along its path, not just lined up in XZ. Enemies
+        // are rooted at their feet (mesh.position.y), so their body's
+        // rough vertical center sits about one hitRadius above that --
+        // same approximation the real bullet-hit check uses (see
+        // updateEnemies()), and same generous tolerance floor
+        // getCrosshairTarget() uses above (see its own comment on this).
+        const enemyCenterY = predicted.y + enemy.hitRadius;
+        const rayY = origin.y + direction.y * t;
+        const verticalTolerance = Math.max(enemy.hitRadius, 1.3);
+        if (Math.abs(rayY - enemyCenterY) > verticalTolerance) continue;
 
-        // Back up from the closest-approach point to where the ray
-        // actually enters the enemy's hit circle, so the marker sits on
-        // its front edge instead of floating at its center.
-        const entry = t - Math.sqrt(enemy.hitRadius * enemy.hitRadius - perpDist * perpDist);
-        if (entry >= 0 && entry < hitDistance) {
-            hitDistance = entry;
-            hitEnemy = true;
-        }
+        hitEnemy = true;
+        break; // one confirmed target is enough -- nothing more to compute
     }
 
-    const endX = origin.x + dirX * hitDistance;
-    const endY = origin.y + dirY * hitDistance;
-    const endZ = origin.z + dirZ * hitDistance;
-
-    // Stretch+orient the unit cylinder so it spans exactly from the
-    // muzzle to the impact point.
-    aimBeam.position.set((origin.x + endX) / 2, (origin.y + endY) / 2, (origin.z + endZ) / 2);
-    aimBeam.scale.set(1, hitDistance, 1);
-    aimBeam.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), new THREE.Vector3(dirX, dirY, dirZ));
-
-    aimMarker.position.set(endX, endY, endZ);
-    aimMarker.rotation.y += deltaTime * 2.5; // slow tumble -- reads as an active "scanner", not a static decal
-    aimMarker.rotation.x += deltaTime * 1.6;
-    aimMarker.scale.setScalar(hitEnemy ? 1.6 : 1);
-
-    // Same color/emissive pairing as the real bullet mesh (see
-    // Weapon.createBulletMesh()) -- the beam and marker always match
-    // whatever's actually about to be fired. Flips to plain white on a
-    // confirmed hit as an extra "locked on" cue on top of the size bump.
-    aimBeam.material.color.setHex(weapon.bulletColor);
-    aimBeam.material.emissive.setHex(weapon.bulletEmissive);
-    aimMarker.material.color.setHex(hitEnemy ? 0xffffff : weapon.bulletColor);
-    aimMarker.material.emissive.setHex(hitEnemy ? 0xffffff : weapon.bulletEmissive);
+    crosshairEl.classList.toggle('hit', hitEnemy);
 }
 
 // ============================================================
@@ -1689,9 +1695,10 @@ function updateEnemies(deltaTime) {
         enemy.update(deltaTime, player.position, attackContext);
 
         // Player bullets vs. this enemy: an XZ-plane distance check, plus
-        // (now that bullets can travel up/down too -- see aimPitch
-        // above) a vertical check against the enemy's rough body
-        // center, same enemy.mesh.position.y + hitRadius approximation
+        // (now that bullets can travel up/down too -- see
+        // getCrosshairTarget() near shootBullet()) a vertical check
+        // against the enemy's rough body center, same
+        // enemy.mesh.position.y + hitRadius approximation
         // updateAimIndicator() uses for its own hit prediction.
         for (let j = bullets.length - 1; j >= 0; j--) {
             const b = bullets[j];
@@ -1700,6 +1707,7 @@ function updateEnemies(deltaTime) {
             const dy = b.mesh.position.y - (enemy.mesh.position.y + enemy.hitRadius);
             if (Math.hypot(dx, dz) < enemy.hitRadius && Math.abs(dy) < enemy.hitRadius) {
                 scene.remove(b.mesh);
+                scene.remove(b.tracer);
                 bullets.splice(j, 1);
 
                 // Dimension Shift's "weak point" bonus -- see TOON_DAMAGE_MULTIPLIER above.
@@ -1910,8 +1918,7 @@ function triggerGameOver() {
     uiOverlayEl.style.display = 'none';
     hudBottomRightEl.style.display = 'none';
     bossBarContainerEl.classList.add('hidden');
-    aimBeam.visible = false;
-    aimMarker.visible = false;
+    crosshairEl.classList.remove('visible');
     strengthAura.visible = false;
     gameOverWaveEl.textContent = currentWave; // "WAVE REACHED" readout on the game-over panel
     gameOverEl.classList.remove('hidden');
@@ -1941,23 +1948,43 @@ function triggerVictory() {
 }
 
 // ============================================================
-// CAMERA — mouse-controlled, follows behind the player.
-// Since player.rotation.y is also set to cameraYaw (see updateGame),
-// the character's "front" direction is (sin(yaw), cos(yaw)) -- so we
-// use the NEGATIVE of that for the camera offset, placing it on the
-// opposite side (behind the character), looking the way they face.
+// CAMERA — mouse-controlled, orbits a pivot near the player.
 // ============================================================
 function updateCamera() {
-    const offsetX = -cameraDistance * Math.sin(cameraYaw) * Math.cos(cameraPitch);
-    const offsetY = cameraDistance * Math.sin(cameraPitch);
-    const offsetZ = -cameraDistance * Math.cos(cameraYaw) * Math.cos(cameraPitch);
+    const pivotX = player.position.x;
+    const pivotY = player.position.y + cameraPivotHeight;
+    const pivotZ = player.position.z;
+
+    // The one true look/aim direction 
+    const forward = new THREE.Vector3(
+        Math.sin(cameraYaw) * Math.cos(cameraPitch),
+        -Math.sin(cameraPitch),
+        Math.cos(cameraYaw) * Math.cos(cameraPitch)
+    );
+    // Real camera-relative right/up (cross products, not a flat
+    // horizontal guess) -- this is what keeps the shoulder offset below
+    // looking like a consistent SCREEN-SPACE shift no matter how much
+    // cameraPitch is currently tilting the view up or down.
+    const right = new THREE.Vector3().crossVectors(forward, new THREE.Vector3(0, 1, 0)).normalize();
+    const up = new THREE.Vector3().crossVectors(right, forward).normalize();
+
+    const orbitOffset = new THREE.Vector3(pivotX, pivotY, pivotZ)
+        .addScaledVector(forward, -cameraDistance)
+        .addScaledVector(right, cameraShoulderRight) // moving the CAMERA right makes the character appear LEFT on screen
+        .addScaledVector(up, cameraShoulderDown);    // moving the CAMERA up makes the character appear LOWER on screen
 
     camera.position.set(
-        player.position.x + offsetX,
-        player.position.y + offsetY,
-        player.position.z + offsetZ
+        orbitOffset.x,
+        // Safety floor: minPitch allows tilting the orbit far enough that,
+        // at extreme angles, the raw formula could dip the camera very
+        // low (or, on paper, below the ground) -- this simply refuses to
+        // render from underground. It doesn't affect aim at all: shots
+        // still fire toward wherever the camera ACTUALLY ends up looking
+        // (see getCrosshairTarget()), clamped position included.
+        Math.max(orbitOffset.y, 0.5),
+        orbitOffset.z
     );
-    camera.lookAt(player.position.x, player.position.y + 0.9, player.position.z); // aim slightly above the feet, roughly chest height
+    camera.lookAt(camera.position.x + forward.x, camera.position.y + forward.y, camera.position.z + forward.z);
 
     // Camera-following fill light: the scene's one shadow-casting
     // DirectionalLight always lights the same world-space side of

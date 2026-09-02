@@ -46,38 +46,59 @@ export class Weapon {
         return mesh;
     }
 
-    // Spawns one bullet at `muzzle`'s current world position, aimed
-    // along `aimAngle` (radians, same convention as cameraYaw in
-    // main.js) plus `aimPitch` (radians, positive = upward, same
-    // convention as getAimPitch() in main.js -- defaults to 0 so any
-    // other caller that doesn't care about vertical aim still gets the
-    // old perfectly-level shot), adds it to `scene`, and returns the
-    // tracking entry updateBullets() expects.
-    shoot(scene, muzzle, aimAngle, aimPitch = 0) {
-        const bullet = this.createBulletMesh();
+    // A short glowing streak trailing directly behind the bullet, same
+    // color/emissive as the bullet itself. Purely visual, but it's what
+    // makes a shot's path read unambiguously as a straight line at a
+    // glance -- a single small, fast-moving sphere sampled once per
+    // frame is easy to misjudge as curving even when its path is
+    // perfectly straight; a continuous streak along that same path removes any doubt.
+    createTracerMesh(direction) {
+        const length = 1.6;
+        const geo = new THREE.CylinderGeometry(this.bulletRadius * 0.35, this.bulletRadius * 0.35, length, 6);
+        const mat = new THREE.MeshStandardMaterial({
+            color: this.bulletColor,
+            emissive: this.bulletEmissive,
+            emissiveIntensity: 2,
+            transparent: true,
+            opacity: 0.5,
+            depthWrite: false // a see-through streak shouldn't hide whatever's behind it
+        });
+        const tracer = new THREE.Mesh(geo, mat);
+        // Cylinders are built standing along +Y by default -- rotate so
+        // it lies along the bullet's actual direction of travel instead.
+        tracer.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), direction);
+        return { tracer, length };
+    }
 
-        // getWorldPosition() converts the muzzle's LOCAL position
-        // (relative to the barrel/gun/hand/arm/torso chain) into a
-        // single world-space point -- where the bullet should appear.
-        const spawnPos = new THREE.Vector3();
-        muzzle.getWorldPosition(spawnPos);
+    // Spawns one bullet at `spawnPos` (a THREE.Vector3 world-space
+    // point -- see getBulletSpawnPoint() in main.js, the gun's actual
+    // muzzle), aimed toward `aimTarget` (another world-space point --
+    // see getCrosshairTarget() in main.js: whatever's actually under
+    // the crosshair). Aiming FROM one point TOWARD the other, rather
+    // than firing along a fixed angle, is the same "aim toward a
+    // target point" technique Boss.js's onAttack() uses via
+    // leadTarget(). Adds the bullet (and its trailing tracer streak,
+    // see createTracerMesh() above) to `scene` and returns the tracking
+    // entry updateBullets() expects.
+    shoot(scene, spawnPos, aimTarget) {
+        const bullet = this.createBulletMesh();
         bullet.position.copy(spawnPos);
 
-        // Standard yaw+pitch -> direction vector (y-up): cos(pitch)
-        // scales down the horizontal component as the shot tilts more
-        // steeply up/down, sin(pitch) supplies the vertical one -- at
-        // aimPitch = 0 this is exactly the old flat (sin(yaw), 0, cos(yaw)).
-        const direction = new THREE.Vector3(
-            Math.sin(aimAngle) * Math.cos(aimPitch),
-            Math.sin(aimPitch),
-            Math.cos(aimAngle) * Math.cos(aimPitch)
-        );
+        const direction = new THREE.Vector3().subVectors(aimTarget, spawnPos).normalize();
+        const { tracer, length: tracerLength } = this.createTracerMesh(direction);
 
         scene.add(bullet);
+        scene.add(tracer);
 
         return {
             mesh: bullet,
-            velocity: direction.multiplyScalar(this.bulletSpeed),
+            tracer,
+            // Precomputed once (direction never changes after this) --   
+            // added to the bullet's current position each frame in
+            // updateBullets() (main.js) to keep the tracer trailing
+            // directly behind it, half its own length back.
+            tracerOffset: direction.clone().multiplyScalar(-tracerLength / 2),
+            velocity: direction.clone().multiplyScalar(this.bulletSpeed),
             age: 0,
             lifetime: this.bulletLifetime,
             damage: this.damage

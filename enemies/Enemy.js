@@ -74,6 +74,18 @@ export class Enemy {
         this.velocityY = 0;
         this.isGrounded = true;
 
+        // This enemy's own current movement velocity (units/sec, XZ --
+        // recomputed every frame in update() from how far it actually
+        // moved since last frame). Same idea as main.js's own
+        // playerVelocity, just per-enemy: lets the PLAYER lead a
+        // strafing/retreating target (see predictEnemyPosition() in
+        // main.js) the same way this enemy already leads the player via
+        // leadTarget() below -- without it, a shot aimed at exactly
+        // where a strafing enemy is right now can still miss, since
+        // they've stepped aside by the time it actually arrives.
+        this.velocity = new THREE.Vector3();
+        this._prevPosition = null; // set on the first update() call, see there
+
         // Built by the subclass; must set this.leftLeg/rightLeg/leftArm/
         // rightArm (all optional -- animateWalk() just skips whichever
         // parts a given model doesn't define) via the returned group's
@@ -113,6 +125,19 @@ export class Enemy {
     // enemies -- see retreatRange) once in range instead of just
     // standing still.
     update(deltaTime, playerPosition, attackContext) {
+        // Velocity from how far this enemy actually moved since the last
+        // frame (see this.velocity above) -- computed BEFORE this
+        // frame's own movement below, same one-frame-lagged approach
+        // main.js uses for the player's own playerVelocity. Skipped on
+        // the very first frame (no previous position to compare against
+        // yet) so it doesn't read a huge bogus velocity from (0,0,0).
+        if (this._prevPosition) {
+            this.velocity.subVectors(this.mesh.position, this._prevPosition).divideScalar(Math.max(deltaTime, 0.0001));
+        } else {
+            this._prevPosition = new THREE.Vector3();
+        }
+        this._prevPosition.copy(this.mesh.position);
+
         const toPlayer = new THREE.Vector3().subVectors(playerPosition, this.mesh.position);
         toPlayer.y = 0; // stay on the ground plane -- ignore the player's jump height
         const distance = toPlayer.length();

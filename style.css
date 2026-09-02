@@ -38,6 +38,56 @@ body {
     100% { opacity: 0; }
 }
 
+/* ============================================================
+   CROSSHAIR
+   Plain 2D HUD element, permanently centered via fixed positioning --
+   no per-frame JS positioning needed at all (see updateAimIndicator()
+   in main.js). 
+   ============================================================ */
+#crosshair {
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    width: 28px;
+    height: 28px;
+    transform: translate(-50%, -50%);
+    pointer-events: none;
+    z-index: 15;
+    display: none; /* shown once PLAY is pressed -- see the play-button handler in main.js */
+    transition: transform 0.1s ease-out;
+}
+
+#crosshair.visible {
+    display: block;
+}
+
+#crosshair svg {
+    width: 100%;
+    height: 100%;
+    overflow: visible;
+}
+
+#crosshair line {
+    stroke: #00ffcc;
+    stroke-width: 3;
+    stroke-linecap: round;
+    filter: drop-shadow(0 0 3px rgba(0, 255, 204, 0.85));
+    transition: stroke 0.1s ease-out;
+}
+
+/* "This shot will land" -- toggled by updateAimIndicator() the instant
+   an enemy is under the crosshair, so it's confirmed before the
+   trigger's even pulled. Flips to a hot red (reads as "target locked"
+   at a glance, distinct from the HUD's usual teal) and grows slightly. */
+#crosshair.hit {
+    transform: translate(-50%, -50%) scale(1.3);
+}
+
+#crosshair.hit line {
+    stroke: #ff3344;
+    filter: drop-shadow(0 0 6px rgba(255, 51, 68, 0.9));
+}
+
 /* Brief red pulse on the HUD's dimension label when TAB is pressed
    while still on cooldown (see toggleDimension() in main.js) -- makes
    it clear the press was refused, rather than looking like nothing

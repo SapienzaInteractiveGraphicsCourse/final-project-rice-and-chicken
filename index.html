@@ -15,6 +15,19 @@
 
     <div id="dimension-flash"></div>
 
+    <!-- Aiming aid -- always dead center on screen, no positioning logic
+         needed (see updateAimIndicator() in main.js, which just toggles
+         the "hit" class depending on whether an enemy is currently under
+         it). Shown once PLAY is pressed, same as the rest of the HUD. -->
+    <div id="crosshair">
+        <svg viewBox="0 0 28 28">
+            <line x1="14" y1="4" x2="14" y2="10"></line>
+            <line x1="14" y1="18" x2="14" y2="24"></line>
+            <line x1="4" y1="14" x2="10" y2="14"></line>
+            <line x1="18" y1="14" x2="24" y2="14"></line>
+        </svg>
+    </div>
+
     <div id="ui-overlay">
         <h2>SYSTEM: ACTIVE</h2>
         <p>WAVE: <span id="wave-value">1</span> / <span id="wave-total">10</span></p>
