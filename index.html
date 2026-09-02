@@ -119,11 +119,15 @@
         <button id="play-button" class="play-button">PLAY</button>
     </div>
 
+    <!-- Three.js r160 is vendored locally under libs/three/ (see README) --
+         the project requirements call for the repository to contain ALL
+         source code, including any libraries used, rather than loading
+         them from a CDN at runtime. -->
     <script type="importmap">
         {
             "imports": {
-                "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
-                "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+                "three": "./libs/three/build/three.module.js",
+                "three/addons/": "./libs/three/examples/jsm/"
             }
         }
     </script>

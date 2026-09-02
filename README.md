@@ -50,7 +50,7 @@ A widened arena with scattered crates, four corner beacons, and dedicated glowin
 
 ## 🚀 How to Run the Project Locally
 
-Since this project uses modern ES Modules (imported via CDN, see the importmap in `index.html`), it does not require complex build tools like Webpack or Vite. However, due to browser security restrictions (CORS) when loading modules from `file://`, you must serve it over a local web server rather than opening `index.html` directly:
+Since this project uses modern ES Modules (resolved via the importmap in `index.html`, pointing at the vendored copy of Three.js under `libs/three/` — see below), it does not require complex build tools like Webpack or Vite, or an internet connection. However, due to browser security restrictions (CORS) when loading modules from `file://`, you must serve it over a local web server rather than opening `index.html` directly:
 
 1. Ensure you have [Node.js](https://nodejs.org/) installed.
 2. Install a lightweight static file server (e.g., `http-server`, or use the *Live Server* extension in VS Code):
@@ -78,10 +78,11 @@ weapons/                Weapon (base) -> Rifle, Pistol, SniperRifle
 playerClasses/          PlayerClass (base) -> Assault, Sniper
 enemies/                Enemy (base) -> Grunt, Shooter, Brute, Marksman, Boss
 powerups/               PowerUp (base) -> Health, Armor (Small/Large), Strength, DimensionCache
+libs/three/             Vendored copy of Three.js (see below) -- no CDN dependency
 ```
 
 ## 📚 Libraries Used
 
-- **[Three.js](https://threejs.org/) r160** (core + `examples/jsm` addons: `RoundedBoxGeometry`, `EffectComposer`/`RenderPass`/`UnrealBloomPass`/`RenderPixelatedPass`/`OutputPass`/`ShaderPass` for the post-processing pipeline).
+- **[Three.js](https://threejs.org/) r160** — core (`libs/three/build/three.module.js`) plus the `examples/jsm` addons actually used (`libs/three/examples/jsm/`): `RoundedBoxGeometry`, and the post-processing pipeline (`EffectComposer`, `RenderPass`, `UnrealBloomPass`, `RenderPixelatedPass`, `OutputPass`, `ShaderPass`, `BrightnessContrastShader`, plus their own internal dependencies). Vendored directly in this repository rather than loaded from a CDN.
 
 No other runtime libraries, physics engines, or asset packs are used — geometry, materials, animation and the environment are all generated in code.
