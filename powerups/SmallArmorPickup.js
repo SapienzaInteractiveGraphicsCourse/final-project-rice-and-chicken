@@ -13,6 +13,7 @@ export class SmallArmorPickup extends ArmorPickup {
         super({ name: 'ARMOR +25', shellScale: 0.85 }); // slightly smaller shell than the large one -- a visual "this is the lesser pickup" cue
     }
 
+    // Overrides ArmorPickup's apply() to add a flat amount of armor
     apply(context) {
         context.addArmor(ARMOR_AMOUNT);
     }

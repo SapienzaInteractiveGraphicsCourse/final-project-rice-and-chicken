@@ -24,12 +24,16 @@ export class DimensionCachePickup extends PowerUp {
     // dimension-shift theme instead of reusing another type's language
     // (cross/shield/fist).
     createIcon() {
+
+        // Defining the material
         const mat = new THREE.MeshStandardMaterial({ color: 0x2a1033, emissive: VIOLET, emissiveIntensity: 2.4 });
         const icon = new THREE.Group();
 
+        // Creating the core of the icon
         const core = new THREE.Mesh(new THREE.SphereGeometry(0.09, 10, 10), mat);
         icon.add(core);
 
+        // Creating the first ring of the icon
         const ring1 = new THREE.Mesh(new THREE.TorusGeometry(0.17, 0.025, 8, 20), mat);
         ring1.rotation.x = Math.PI / 2;
         icon.add(ring1);

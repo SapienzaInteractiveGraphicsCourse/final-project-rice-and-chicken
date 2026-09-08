@@ -21,8 +21,10 @@ export class Grunt extends Enemy {
     }
 
     createModel() {
+
         const enemyGroup = new THREE.Group();
 
+        // Materials for the Grunt's body, claws, and glowing eye visor
         const bodyMat = new THREE.MeshStandardMaterial({ color: 0x8a1f1f, roughness: 0.65, metalness: 0.25 });
         const clawMat = new THREE.MeshStandardMaterial({ color: 0x2e1c1c, roughness: 0.4, metalness: 0.5 }); 
         const eyeMat = new THREE.MeshStandardMaterial({ color: 0x220000, emissive: 0xff2222, emissiveIntensity: 2.2 });

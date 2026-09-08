@@ -61,6 +61,18 @@ export class Shooter extends Enemy {
         rightArm.castShadow = true;
         torso.add(rightArm);
 
+        // --- Legs ---
+        const legGeo = new RoundedBoxGeometry(0.22, 0.55, 0.22, 2, 0.03);
+        const leftLeg = new THREE.Mesh(legGeo, bodyMat);
+        leftLeg.position.set(-0.15, 0.275, 0);
+        leftLeg.castShadow = true;
+        enemyGroup.add(leftLeg);
+
+        const rightLeg = new THREE.Mesh(legGeo, bodyMat);
+        rightLeg.position.set(0.15, 0.275, 0);
+        rightLeg.castShadow = true;
+        enemyGroup.add(rightLeg);
+
         // --- Blaster ---
         // Fused to the right hand as one simple unit (not a full Weapon
         // subclass -- enemies don't switch weapons, so that machinery
@@ -91,18 +103,6 @@ export class Shooter extends Enemy {
         blasterGroup.position.set(0, -0.32, 0.12); // roughly at the hand, extending forward
         rightArm.add(blasterGroup);
 
-        // --- Legs ---
-        const legGeo = new RoundedBoxGeometry(0.22, 0.55, 0.22, 2, 0.03);
-        const leftLeg = new THREE.Mesh(legGeo, bodyMat);
-        leftLeg.position.set(-0.15, 0.275, 0);
-        leftLeg.castShadow = true;
-        enemyGroup.add(leftLeg);
-
-        const rightLeg = new THREE.Mesh(legGeo, bodyMat);
-        rightLeg.position.set(0.15, 0.275, 0);
-        rightLeg.castShadow = true;
-        enemyGroup.add(rightLeg);
-
         this.leftArm = leftArm;
         this.rightArm = rightArm;
         this.leftLeg = leftLeg;
@@ -119,12 +119,18 @@ export class Shooter extends Enemy {
     // dead level, e.g. if the player is up on a jump-platform or the
     // shooter itself jumped onto one (see Enemy.js's update()).
     onAttack(context) {
+
+        // Get the muzzle's world position to spawn the bullet from
         const spawnPos = new THREE.Vector3();
         this.muzzle.getWorldPosition(spawnPos);
 
+        // Find the predicted player position to aim at
         const aimPoint = this.leadTarget(context, spawnPos, this.bulletSpeed);
+
+        // Compute the direction vector from the muzzle to the predicted player position, and normalize it to get a unit vector
         const direction = new THREE.Vector3().subVectors(aimPoint, spawnPos).normalize();
 
+        // Create a bullet mesh and add it to the scene, then spawn it with the computed velocity and other properties
         const bulletGeo = new THREE.SphereGeometry(0.08, 8, 8);
         const bulletMat = new THREE.MeshStandardMaterial({ color: 0xcc66ff, emissive: 0xaa22ff, emissiveIntensity: 2 });
         const mesh = new THREE.Mesh(bulletGeo, bulletMat);
@@ -134,7 +140,9 @@ export class Shooter extends Enemy {
 
         context.spawnEnemyBullet({
             mesh,
+            // The velocity is the direction vector scaled by the bullet speed, so it moves toward the predicted player position
             velocity: direction.multiplyScalar(this.bulletSpeed),
+            // To let the bullet know how long it should exist before disappearing, we set its lifetime and damage properties
             age: 0,
             lifetime: this.bulletLifetime,
             damage: this.damage

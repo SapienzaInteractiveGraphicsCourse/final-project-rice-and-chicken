@@ -7,11 +7,12 @@ import { Enemy } from './Enemy.js';
 // The final wave encounter -- a single, MUCH larger and tougher enemy
 // instead of a crowd (see startWave()/spawnBoss() in main.js). Unlike
 // Grunt (melee), this one fights at range: it stops well short of the
-// player and unleashes a 3-bolt spread from its chest ember instead of
-// closing in for a claw swipe, on top of a much bigger health pool
-// befitting a final boss. What sells the "boss" read: the stats, the
-// sheer size/width of the model, and the devil theme -- horns, glowing
-// red eyes, an ember chest core, spine spikes.
+// player and fires a bolt from each hand -- a genuine 3D shot angled
+// down at the player, since its scaled-up hands sit well above player
+// height -- instead of closing in for a claw swipe, on top of a much
+// bigger health pool befitting a final boss. What sells the "boss"
+// read: the stats, the sheer size/width of the model, and the devil
+// theme -- horns, glowing red eyes, an ember chest core, spine spikes.
 // ============================================================
 export class Boss extends Enemy {
     constructor() {
@@ -86,6 +87,7 @@ export class Boss extends Enemy {
         const leftEye = new THREE.Mesh(eyeGeo, eyeMat);
         leftEye.position.set(-0.17, 0.04, 0.29);
         head.add(leftEye);
+        
         const rightEye = new THREE.Mesh(eyeGeo, eyeMat);
         rightEye.position.set(0.17, 0.04, 0.29);
         head.add(rightEye);
@@ -133,9 +135,7 @@ export class Boss extends Enemy {
 
         // --- Hand muzzles ---
         // Attack spawn points (see onAttack()), one per claw -- fires
-        // from the hands, angled down at the player, instead of a flat
-        // horizontal shot from chest height that would
-        // sail straight over the player's head.
+        // from the hands, angled down at the player
         this.leftMuzzle = new THREE.Object3D();
         this.leftMuzzle.position.set(0, -1.0, 0.2); // just past the claw tip
         leftArm.add(this.leftMuzzle);
@@ -185,13 +185,20 @@ export class Boss extends Enemy {
     // head -- aiming the real, unflattened vector down at them is what
     // actually lands it.
     onAttack(context) {
+        // One bolt per hand -- loop over both muzzles and fire an identical shot from each
         for (const muzzle of [this.leftMuzzle, this.rightMuzzle]) {
+
+            // Get this muzzle's world position to spawn the bullet from
             const spawnPos = new THREE.Vector3();
             muzzle.getWorldPosition(spawnPos);
 
+            // Find the predicted player position to aim at
             const aimPoint = this.leadTarget(context, spawnPos, this.bulletSpeed);
+
+            // Compute the direction vector from the muzzle to the predicted player position, and normalize it to get a unit vector
             const direction = new THREE.Vector3().subVectors(aimPoint, spawnPos).normalize();
 
+            // Create a bullet mesh and add it to the scene, then spawn it with the computed velocity and other properties
             const bulletGeo = new THREE.SphereGeometry(0.14, 8, 8);
             const bulletMat = new THREE.MeshStandardMaterial({ color: 0xff5500, emissive: 0xff2200, emissiveIntensity: 2.5 });
             const mesh = new THREE.Mesh(bulletGeo, bulletMat);
@@ -201,7 +208,9 @@ export class Boss extends Enemy {
 
             context.spawnEnemyBullet({
                 mesh,
+                // The velocity is the direction vector scaled by the bullet speed, so it moves toward the predicted player position
                 velocity: direction.multiplyScalar(this.bulletSpeed),
+                // To let the bullet know how long it should exist before disappearing, we set its lifetime and damage properties
                 age: 0,
                 lifetime: this.bulletLifetime,
                 damage: this.damage

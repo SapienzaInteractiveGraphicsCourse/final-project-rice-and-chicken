@@ -36,18 +36,26 @@ export class Pistol extends Weapon {
     createModel() {
         const gunGroup = new THREE.Group();
 
+        // Materials for the gun's parts
         const metalMat = new THREE.MeshStandardMaterial({ color: 0x2e2e3a, roughness: 0.3, metalness: 0.8 }); 
         const glowMat = new THREE.MeshStandardMaterial({ color: 0x002233, emissive: 0x33aaff, emissiveIntensity: 2 });
 
         // --- Slide (top body, houses the barrel) ---
+        // RoundedBoxGeometry is a custom geometry that creates a box with rounded edges. 
+        // The parameters are width, height, depth, number of segments for the rounded edges, and radius of the rounded edges.
         const slide = new THREE.Mesh(new RoundedBoxGeometry(0.09, 0.09, 0.32, 2, 0.015), metalMat);
         slide.position.set(0, 0.02, 0.14);
         slide.castShadow = true;
         gunGroup.add(slide);
 
         // --- Barrel (short cylinder, just peeks past the slide) ---
+        // THREE.CylinderGeometry creates a cylinder with the specified radius and height.
+        // The parameters are radiusTop, radiusBottom, height, and radialSegments.
         const barrelGeo = new THREE.CylinderGeometry(0.017, 0.017, 0.12, 8);
         const barrel = new THREE.Mesh(barrelGeo, metalMat);
+
+        // Same as tracer: cylinders are built standing along +Y by default, but the barrel needs to point forward along +Z.
+        // We rotate it by 90 degrees (Math.PI / 2 radians) around the X-axis to align it with the gun's forward direction.
         barrel.rotation.x = Math.PI / 2;
         barrel.position.set(0, 0.02, 0.32);
         barrel.castShadow = true;
@@ -55,15 +63,19 @@ export class Pistol extends Weapon {
 
         // --- Muzzle marker ---
         // Barrel center z=0.32, half-length 0.06 -> tip at z=0.38.
+        // it has no geometry or material, but it marks the exact point where bullets should spawn.
+        // This is important for ensuring that bullets appear to come from the correct location on the gun model.
+        // Useful to follow the peak of the barrel, but not a visible part of the gun itself.
+        // This is used by main.js to determine where to spawn bullets when the gun is fired.
         const muzzle = new THREE.Object3D();
         muzzle.position.set(0, 0.02, 0.38);
         gunGroup.add(muzzle);
         gunGroup.userData.muzzle = muzzle;
 
-        // --- Grip ---
+        // --- Grip (impugnatura) ---
         const grip = new THREE.Mesh(new RoundedBoxGeometry(0.07, 0.18, 0.08, 2, 0.012), metalMat);
         grip.position.set(0, -0.11, -0.06);
-        grip.rotation.x = -0.25; // angled back, same idea as Rifle's grip
+        grip.rotation.x = -0.25; // angled back
         grip.castShadow = true;
         gunGroup.add(grip);
 

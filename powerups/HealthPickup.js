@@ -13,9 +13,12 @@ export class HealthPickup extends PowerUp {
     }
 
     createIcon() {
+
+        // Defining the material and the icon
         const iconMat = new THREE.MeshStandardMaterial({ color: 0x0d3a22, emissive: GREEN, emissiveIntensity: 2.5 });
         const icon = new THREE.Group();
 
+        // Creating the vertical and horizontal bars of the cross icon
         const vBar = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.36, 0.12), iconMat);
         icon.add(vBar);
         const hBar = new THREE.Mesh(new THREE.BoxGeometry(0.36, 0.12, 0.12), iconMat);

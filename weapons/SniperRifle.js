@@ -37,6 +37,7 @@ export class SniperRifle extends Weapon {
     createModel() {
         const gunGroup = new THREE.Group();
 
+        // Materials for the gun's parts
         const metalMat = new THREE.MeshStandardMaterial({ color: 0x36352e, roughness: 0.4, metalness: 0.7 }); 
         const scopeMat = new THREE.MeshStandardMaterial({ color: 0x232326, roughness: 0.3, metalness: 0.8 }); 
         const glowMat = new THREE.MeshStandardMaterial({ color: 0x330000, emissive: 0xff2200, emissiveIntensity: 2 });

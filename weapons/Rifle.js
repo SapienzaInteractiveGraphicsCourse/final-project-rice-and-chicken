@@ -40,6 +40,8 @@ export class Rifle extends Weapon {
     createModel() {
         const gunGroup = new THREE.Group();
 
+
+        // Materials for the gun's parts
         const metalMat = new THREE.MeshStandardMaterial({ color: 0x2e2e3a, roughness: 0.35, metalness: 0.75 }); 
         const metalMatLight = new THREE.MeshStandardMaterial({ color: 0x45454f, roughness: 0.4, metalness: 0.6 }); 
         // Emissive strip = glows on its own regardless of scene lighting.

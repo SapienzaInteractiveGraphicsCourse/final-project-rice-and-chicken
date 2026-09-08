@@ -12,6 +12,7 @@ export class LargeArmorPickup extends ArmorPickup {
         super({ name: 'ARMOR (FULL)', shellScale: 1.5 });
     }
 
+    // Overrides ArmorPickup's apply() to restore armor to full
     apply(context) {
         context.armorToFull();
     }

@@ -19,6 +19,8 @@ export class ArmorPickup extends PowerUp {
     // instead of boxes) -- pointed bottom, rounded top, reads clearly as
     // "armor" rather than an abstract blob.
     createIcon() {
+
+        // Here we are creating the shape of the armor icon using THREE.Shape. We define the shape by moving to different points and creating curves and lines to form the shield silhouette.
         const shape = new THREE.Shape();
         shape.moveTo(-0.22, 0.26);
         shape.quadraticCurveTo(0, 0.34, 0.22, 0.26);
@@ -27,6 +29,9 @@ export class ArmorPickup extends PowerUp {
         shape.quadraticCurveTo(-0.22, -0.22, -0.22, 0.02);
         shape.lineTo(-0.22, 0.26);
 
+        // Here we are adding thickness to the shape by using THREE.ExtrudeGeometry. 
+        // We specify the depth and bevel (smusso) properties to give the shield a 3D appearance. 
+        // Finally, we center the geometry so that it is properly positioned in the scene.
         const geo = new THREE.ExtrudeGeometry(shape, {
             depth: 0.07,
             bevelEnabled: true,

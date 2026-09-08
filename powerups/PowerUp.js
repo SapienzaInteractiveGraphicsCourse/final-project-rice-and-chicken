@@ -18,13 +18,18 @@ export class PowerUp {
         this.glowColor = glowColor;
         this.pickupRadius = 1.0; // used by main.js's distance check against the player
         this.lifetime = LIFETIME; // main.js removes this power-up once aliveTime passes this
+        
         // True only for DimensionCachePickup -- see updatePowerUps() in
         // main.js, which hides (and blocks collecting) any power-up with
         // this flag set unless the player is currently in Toon dimension.
         this.requiresToon = requiresToon;
 
-        this.baseY = 0.9; // float height above the ground
-        this.bobPhase = Math.random() * Math.PI * 2; // stagger the bob cycle so pickups don't all bounce in sync
+        // This three allows the power up to float up and down gently, instead of just sitting rigidly in place. The bobPhase is randomized so that multiple power-ups don't all bob in sync.
+        this.baseY = 0.9; // float height above the ground (rest height, before bobbing)
+        // This is the phase offset for the bobbing motion, randomized so that multiple power-ups don't all bob in sync.
+        this.bobPhase = Math.random() * Math.PI * 2; 
+        // We need this to track how long the power-up has been alive, so we can determine when it should despawn. 
+        // And to let the power up move over time
         this.aliveTime = 0;
 
         this.group = new THREE.Group();
@@ -34,6 +39,7 @@ export class PowerUp {
         // at a glance from a distance; only the icon inside (see
         // createIcon(), overridden per subclass) tells them apart once
         // the player is close enough to see it.
+
         const shellGeo = new THREE.IcosahedronGeometry(0.4 * shellScale, 0);
         const shellMat = new THREE.MeshStandardMaterial({
             color: glowColor,
@@ -44,12 +50,17 @@ export class PowerUp {
             roughness: 0.3,
             metalness: 0.1
         });
+
+        // Here we are creating the shell of the powerup, which comprises the geometry and the material, and then we add it to the group of the powerup.
         this.shell = new THREE.Mesh(shellGeo, shellMat);
         this.group.add(this.shell);
 
+        // Here we are creating a point light for the powerup, which will give it a glowing effect. The color of the light is determined by the glowColor parameter passed to the constructor.
+        // The intensity and distance of the light are also set here. Finally, we add the light to the group of the powerup.
         const light = new THREE.PointLight(glowColor, 2.5, 6);
         this.group.add(light);
-
+        
+        // Here every subclass sets its own icon (cross, shield, flexed arm...) that spins inside the glow shell. The createIcon() method is abstract and must be implemented by each subclass.
         this.icon = this.createIcon(); // subclass-provided
         this.group.add(this.icon);
 
@@ -79,12 +90,25 @@ export class PowerUp {
     // once aliveTime passes lifetime).
     update(deltaTime) {
         this.aliveTime += deltaTime;
-        this.group.rotation.y += deltaTime * 1.6;
-        this.icon.rotation.y += deltaTime * 2.4;
-        this.shell.rotation.x += deltaTime * 0.6;
-        this.group.position.y = this.baseY + Math.sin(this.aliveTime * 2 + this.bobPhase) * 0.15;
 
+        // This is the rotation of the group, which contains the shell and the icon. The group rotates around the y-axis at a speed of 1.6 radians per second.
+        this.group.rotation.y += deltaTime * 1.6;
+
+        // This is the rotation of the icon, to let the icon spin in a quicker way than the whole group
+        this.icon.rotation.y += deltaTime * 2.4;
+
+        // Here is added a smaller rotation on the x axis to the shell, this is done to give a more dynamic appearance and capture the light in a more interesting way, making the power-up look more lively and less static.
+        this.shell.rotation.x += deltaTime * 0.6;
+
+        // To let the power-up float up and down gently
+        this.group.position.y = this.baseY + Math.sin(this.aliveTime * 2 + this.bobPhase) * 0.15;
+        
+        // Remaining time before the power-up despawns, used to determine if it should blink or not
         const timeLeft = this.lifetime - this.aliveTime;
+
+        // This allows the power-up to blink in its last few seconds as a warning that it is about to despawn. 
+        // First half is always true until the last few seconds, then it blinks on/off every 1/8th of a second (see the Math.floor() check) until it despawns.
+        // The condition every time is true false true false , ...
         this.group.visible = timeLeft > WARNING_TIME || Math.floor(this.aliveTime * 8) % 2 === 0;
     }
 

@@ -16,6 +16,8 @@ export class StrengthPickup extends PowerUp {
     }
 
     createIcon() {
+
+        // Defining the material and the icon
         const mat = new THREE.MeshStandardMaterial({ color: 0x452a10, emissive: ORANGE, emissiveIntensity: 2.4 }); 
         const icon = new THREE.Group();
 
@@ -36,7 +38,7 @@ export class StrengthPickup extends PowerUp {
         forearm.rotation.z = -0.6;
         icon.add(forearm);
 
-        // Fist
+        // Fist (pugno)
         const fist = new THREE.Mesh(new THREE.SphereGeometry(0.09, 10, 10), mat);
         fist.position.set(0.1, -0.06, 0);
         icon.add(fist);
@@ -44,6 +46,7 @@ export class StrengthPickup extends PowerUp {
         return icon;
     }
 
+    // Overrides PowerUp's apply() to activate the temporary strength buff
     apply(context) {
         context.activateStrengthBuff();
     }

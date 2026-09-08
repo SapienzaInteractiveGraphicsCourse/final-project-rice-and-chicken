@@ -56,11 +56,13 @@ export class Brute extends Enemy {
         head.add(eye);
 
         // --- Shoulder pauldrons -- broad, armored silhouette ---
+
         const pauldronGeo = new RoundedBoxGeometry(0.4, 0.24, 0.4, 2, 0.05);
         const leftPauldron = new THREE.Mesh(pauldronGeo, darkMat);
         leftPauldron.position.set(-0.58, 0.42, 0);
         leftPauldron.castShadow = true;
         torso.add(leftPauldron);
+
         const rightPauldron = new THREE.Mesh(pauldronGeo, darkMat);
         rightPauldron.position.set(0.58, 0.42, 0);
         rightPauldron.castShadow = true;
@@ -72,6 +74,7 @@ export class Brute extends Enemy {
         leftArm.position.set(-0.58, 0.05, 0);
         leftArm.castShadow = true;
         torso.add(leftArm);
+
         const rightArm = new THREE.Mesh(armGeo, armorMat);
         rightArm.position.set(0.58, 0.05, 0);
         rightArm.castShadow = true;
@@ -82,6 +85,7 @@ export class Brute extends Enemy {
         leftFist.position.set(0, -0.48, 0);
         leftFist.castShadow = true;
         leftArm.add(leftFist);
+
         const rightFist = new THREE.Mesh(fistGeo, darkMat);
         rightFist.position.set(0, -0.48, 0);
         rightFist.castShadow = true;
@@ -99,6 +103,7 @@ export class Brute extends Enemy {
         leftLeg.position.set(-0.24, 0.3, 0);
         leftLeg.castShadow = true;
         enemyGroup.add(leftLeg);
+        
         const rightLeg = new THREE.Mesh(legGeo, armorMat);
         rightLeg.position.set(0.24, 0.3, 0);
         rightLeg.castShadow = true;

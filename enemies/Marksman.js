@@ -61,6 +61,7 @@ export class Marksman extends Enemy {
         leftArm.position.set(-0.32, 0.08, 0);
         leftArm.castShadow = true;
         torso.add(leftArm);
+
         const rightArm = new THREE.Mesh(armGeo, bodyMat);
         rightArm.position.set(0.32, 0.08, 0);
         rightArm.castShadow = true;
@@ -69,6 +70,7 @@ export class Marksman extends Enemy {
         // --- Long rifle -- much longer barrel than Shooter's stubby
         // blaster, reinforcing "this one shoots from far away" ---
         const rifleGroup = new THREE.Group();
+
         const body = new THREE.Mesh(new RoundedBoxGeometry(0.1, 0.1, 0.3, 2, 0.015), darkMat);
         body.position.z = 0.1;
         body.castShadow = true;
@@ -116,13 +118,20 @@ export class Marksman extends Enemy {
     // just one precise shot instead of a burst. Genuine 3D aim (not
     // flattened to Y=0), same as Shooter/Boss -- tilts toward the
     // player's real height instead of always firing dead level.
+
     onAttack(context) {
+
+        // Get the muzzle's world position to spawn the bullet from
         const spawnPos = new THREE.Vector3();
         this.muzzle.getWorldPosition(spawnPos);
 
+        // Find the predicted player position to aim at
         const aimPoint = this.leadTarget(context, spawnPos, this.bulletSpeed);
+
+        // Compute the direction vector from the muzzle to the predicted player position, and normalize it to get a unit vector
         const direction = new THREE.Vector3().subVectors(aimPoint, spawnPos).normalize();
 
+        // Create a bullet mesh and add it to the scene, then spawn it with the computed velocity and other properties
         const bulletGeo = new THREE.SphereGeometry(0.09, 8, 8);
         const bulletMat = new THREE.MeshStandardMaterial({ color: 0x66ffcc, emissive: 0x22ff99, emissiveIntensity: 2.2 });
         const mesh = new THREE.Mesh(bulletGeo, bulletMat);
@@ -132,7 +141,9 @@ export class Marksman extends Enemy {
 
         context.spawnEnemyBullet({
             mesh,
+            // The velocity is the direction vector scaled by the bullet speed, so it moves toward the predicted player position
             velocity: direction.multiplyScalar(this.bulletSpeed),
+            // To let the bullet know how long it should exist before disappearing, we set its lifetime and damage properties
             age: 0,
             lifetime: this.bulletLifetime,
             damage: this.damage
