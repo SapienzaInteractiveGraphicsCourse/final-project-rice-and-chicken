@@ -4,17 +4,19 @@ import { Pistol } from '../weapons/Pistol.js';
 
 // ============================================================
 // SNIPER
-// Long-range primary, pistol sidearm
-//  Muted olive/ghillie color scheme instead of the Assault teal.
+// Long-range primary, pistol sidearm.
+// Light sage-green scheme instead of the Assault teal: close to
+// the texture's own color, only gently pushed toward green, and
+// kept pale (the earlier olive read far too dark on the model).
 // ============================================================
 export class Sniper extends PlayerClass {
     constructor() {
         super({
             name: 'Sniper',
             weapons: [new SniperRifle(), new Pistol()],
-            bodyColor: 0x4a5a3a,
-            legColor: 0x434f38,
-            headColor: 0xcbbfa0
+            bodyColor: 0xbcd0a0,   
+            legColor: 0xbcd0a0,    
+            headColor: 0xe4e8d4    
         });
     }
 }

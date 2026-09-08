@@ -1,8 +1,8 @@
 import * as THREE from 'three';
 
 const textureLoader = new THREE.TextureLoader();
-const ARMOR_TEXTURE_PATH = './textures/sci_fi_metal_panel_010/';
-const BACKPACK_TEXTURE_PATH = './textures/metal_plate_049/';
+const ARMOR_TEXTURE_PATH = './textures/metal_weave_011/';
+const BACKPACK_TEXTURE_PATH = './textures/frosted_glass/';
 
 // Function that allow us to load a texture from a given path and file name, and set its wrapping and repeat properties. It also handles color space for color maps.
 function loadMap(basePath, fileName, repeatX, repeatY, isColorMap = false) {
@@ -54,11 +54,6 @@ export class PlayerClass {
     // own method (rather than inlined in main.js's createPlayer()) so
     // a subclass could override it later for a completely different
     // look, without touching main.js at all.
-    //
-    // Every armored part shares the SAME downloaded photo-sourced diffuse/
-    // normal/roughness set (see the header comment above), tiled at a
-    // per-part UV repeat and tinted per-part via MeshStandardMaterial's
-    // `color` .
     createBodyMaterials() {
 
         // Here we convert the hex color values for the body, leg, head, and backpack into THREE.Color objects. 
@@ -115,16 +110,18 @@ export class PlayerClass {
             });
         }
 
-        // Backpack: a deliberately different texture set (bold red-painted
-        // riveted panel, see header comment) instead of the body's blue
-        // plate -- left untinted (white) so its own red/rust color shows
-        // through as-is, rather than being pulled toward backpackColor.
+        // Backpack: a deliberately different texture set (frosted glass,
+        // ./textures/frosted_glass/) instead of the body's armor plate --
+        // left untinted (white) so the texture's own color shows through
+        // as-is, rather than being pulled toward backpackColor. Non-metal
+        // (metalness 0) so the frosted surface reads as glass rather than
+        // brushed metal.
         materials.backpack = new THREE.MeshStandardMaterial({
             map: loadMap(BACKPACK_TEXTURE_PATH, 'basecolor.png', 2, 2, true),
             normalMap: loadMap(BACKPACK_TEXTURE_PATH, 'normal.png', 2, 2),
             roughnessMap: loadMap(BACKPACK_TEXTURE_PATH, 'roughness.png', 2, 2),
             roughness: 1.0,
-            metalness: 0.5
+            metalness: 0.0
         });
 
         // Visor / chest-core accent: flat glow, no armor texture -- same

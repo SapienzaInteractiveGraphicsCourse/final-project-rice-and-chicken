@@ -15,7 +15,7 @@
 ---
 
 ## 🎮 Project Description
-**Dimension Shift: Sci-Fi Arena** is a 3D third-person shooter with a mouse-controlled camera, built entirely with **Three.js** (WebGL) — every model, animation and shader in it is generated procedurally in code, with no imported meshes or pre-made animations. The only external art assets are a handful of PBR texture maps (color / normal / roughness) used on the player armor; all other surfaces (ground grid, toon gradient ramp, etc.) are generated procedurally as canvas textures. The player picks a class, then has to survive an escalating series of enemy waves in a sci-fi arena and defeat a final boss.
+**Dimension Shift: Sci-Fi Arena** is a 3D third-person shooter with a mouse-controlled camera, built entirely with **Three.js** (WebGL) — every model, animation and shader in it is generated procedurally in code, with no imported meshes or pre-made animations. The only external art assets are two PBR texture sets (color / normal / roughness maps) used on the player's armor and backpack; all other surfaces (ground grid, toon gradient ramp, etc.) are generated procedurally as canvas textures. The player picks a class, then has to survive an escalating series of enemy waves in a sci-fi arena and defeat a final boss.
 
 ### 🌀 Dimension Shift
 The signature mechanic, toggled with **TAB**: the whole scene re-renders in a completely different visual style, and that shift has real gameplay stakes, not just a cosmetic filter.
@@ -90,11 +90,11 @@ No other runtime libraries or physics engines are used — geometry, animation a
 
 ## 🎨 Texture Assets
 
-The player armor materials ([`playerClasses/PlayerClass.js`](playerClasses/PlayerClass.js)) use external PBR texture sets (base color + normal + roughness maps), stored under [`textures/`](textures/):
+The player materials ([`playerClasses/PlayerClass.js`](playerClasses/PlayerClass.js)) use two external PBR texture sets (base color + normal + roughness maps), stored under [`textures/`](textures/). Both are from [3dtextures.me](https://3dtextures.me/) and released under CC0:
 
 | Set | Used for | Source | License |
 |---|---|---|---|
-| `sci_fi_metal_panel_010` | Player torso / arms / legs / head / trim | [3dtextures.me](https://3dtextures.me/) | CC0 |
-| `metal_plate_049` | Player backpack | [3dtextures.me](https://3dtextures.me/) | CC0 |
+| `metal_weave_011` | Player armor: torso / arms / legs / head / trim (tinted per class) | [3dtextures.me](https://3dtextures.me/) | CC0 |
+| `frosted_glass` (Glass Frosted 003) | Player backpack (untinted) | [3dtextures.me](https://3dtextures.me/) | CC0 |
 
 All other textures in the project (ground grid, toon gradient ramp) are generated procedurally at runtime as `THREE.CanvasTexture` and are not external assets.
