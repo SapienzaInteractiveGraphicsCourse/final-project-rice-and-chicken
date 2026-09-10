@@ -673,9 +673,7 @@ function updateMenuPreview(deltaTime) {
 function init() {
 
     // --- Scene setup ---
-    // No flat background color -- environment.js's createEnvironment()
-    // adds a gradient skybox + starfield mesh that fills this role instead
-    // (see createSkybox() there).
+    // No flat background color 
     scene = new THREE.Scene();
 
     // --- Camera setup ---
@@ -693,13 +691,14 @@ function init() {
     // ACES Filmic: highlights roll off smoothly instead of clipping to
     // solid white. 
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    renderer.toneMappingExposure = 1.35;
-    renderer.outputColorSpace = THREE.SRGBColorSpace;
-    document.body.appendChild(renderer.domElement); // add the <canvas> to the page
+    renderer.toneMappingExposure = 1.35; // A small multiplier to brighten the scene
+    renderer.outputColorSpace = THREE.SRGBColorSpace; 
+    document.body.appendChild(renderer.domElement); // add the <canvas> to the HTML page (renderer.domElement)
 
     // --- Lights ---
     // HemisphereLight: like AmbientLight, but blends a "sky" color and a
     // "ground" color based on each surface's normal 
+    // THREE.HemisphereLight(skyColor, groundColor, intensity)
     const hemiLight = new THREE.HemisphereLight(0x44598a, 0x3a3228, 0.6);
     scene.add(hemiLight);
 
@@ -707,29 +706,35 @@ function init() {
     // moonlight-ish blue tint to match the sci-fi/night arena mood). Has
     // a direction (from its position toward the origin/target) and CAN
     // cast shadows.
+    // THREE.DirectionalLight(color, intensity)
     const dirLight = new THREE.DirectionalLight(0xccddff, 1.0);
     dirLight.position.set(25, 45, 15);
     dirLight.castShadow = true;
     // Shadow map resolution: higher = sharper shadows but more GPU cost
     dirLight.shadow.mapSize.width = 2048;
     dirLight.shadow.mapSize.height = 2048;
+
     // The default shadow-camera frustum is only +/-5 units across --
     // fine for a tiny demo scene, but this arena is ~54 units wide, so
     // almost everything would fall outside it and simply not cast a
     // shadow at all. Widened to cover the whole playable area (see
     // WALL_DISTANCE in environment.js) plus some margin.
+    // Define the region within which shadows are calculated
     dirLight.shadow.camera.left = -42;
     dirLight.shadow.camera.right = 42;
     dirLight.shadow.camera.top = 42;
     dirLight.shadow.camera.bottom = -42;
+
+    // a little less than the default (500), over this no shadow is computed
     dirLight.shadow.camera.far = 100;
-    dirLight.shadow.bias = -0.0015; // the much larger frustum above needs a bit of bias to avoid shadow-acne artifacts
+    dirLight.shadow.bias = -0.0015; // tiny offset that hides "shadow acne" (a surface shadowing itself)
     scene.add(dirLight);
 
     // Cool, low-intensity point light from the opposite side of the main
     // directional light 
+    // THREE.PointLight(color, intensity, range)
     const fillLight = new THREE.PointLight(0x0088ff, 0.4, 60);
-    fillLight.position.set(-18, 10, -18);
+    fillLight.position.set(-18, 10, -18); // Opposite to the directionalLight
     scene.add(fillLight);
 
     // A second fill light that isn't fixed in place -- see updateCamera(),
@@ -744,6 +749,8 @@ function init() {
     // Runs the rendered frame through extra passes instead of drawing
     // straight to the screen (see animate()).
     composer = new EffectComposer(renderer);
+
+    // First pass 
     const renderPass = new RenderPass(scene, camera);
     composer.addPass(renderPass);
 
@@ -753,10 +760,16 @@ function init() {
     // no custom shader of our own. Starts disabled: realistic mode (the
     // plain renderPass above) is the default -- see toggleDimensionShift()
     // in dimensionShift.js, which flips `.enabled` on both in lockstep.
+
+    // 5 is the pixel size
     const pixelatedPass = new RenderPixelatedPass(5, scene, camera, {
+
+        // Here we re adding the black edges for a more comic book style
         normalEdgeStrength: 0.6,
         depthEdgeStrength: 0.6
     });
+
+    // Initially disabled
     pixelatedPass.enabled = false;
     composer.addPass(pixelatedPass);
 
@@ -768,9 +781,9 @@ function init() {
     // moderate on purpose 
     bloomPass = new UnrealBloomPass(
         new THREE.Vector2(window.innerWidth, window.innerHeight),
-        0.2, // strength
-        0.4,  // radius
-        0.8   // threshold 
+        0.2, // strength of the halo
+        0.4,  // radius of the halo
+        0.8   // threshold (below this no bloom)
     );
     composer.addPass(bloomPass);
     composer.addPass(new OutputPass()); // converts the linear result back to display color space/tone mapping after bloom
@@ -819,7 +832,10 @@ function init() {
     window.addEventListener('keydown', (e) => handleKeyboard(e, true));
     window.addEventListener('keyup', (e) => handleKeyboard(e, false));
     // Mouse input: left button held down = firing
+    // e.button === 0 is the left button
+    // isMouseDown for the shooting, menuDragging to rotate the model in the main menù
     window.addEventListener('mousedown', (e) => { if (e.button === 0) { isMouseDown = true; menuDragging = true; } });
+    // shotFiredThisPress is the stop for the semiAutomatic guns
     window.addEventListener('mouseup', (e) => { if (e.button === 0) { isMouseDown = false; menuDragging = false; shotFiredThisPress = false; } });
 
     // Pointer Lock: clicking the canvas hides the cursor and switches
@@ -832,11 +848,15 @@ function init() {
     // player even presses PLAY. Once gameplay is running this still lets
     // a click re-acquire the lock if it was lost (e.g. after Alt-Tab).
     renderer.domElement.addEventListener('click', () => {
+        // Lock the mouse only when the game is started (we can still click the buttons)
         if (!gameStarted) return;
         renderer.domElement.requestPointerLock();
     });
 
     document.addEventListener('mousemove', (e) => {
+
+        // We re moving the mouse but we re on the menu
+        // The pointer is not on our canvas (we re not in aim mode)
         if (document.pointerLockElement !== renderer.domElement) {
             // Pointer isn't locked -- we're not in gameplay yet, so this is
             // the mouse moving over the main menu. Only spin the preview
@@ -847,11 +867,17 @@ function init() {
             // last mousemove), so no need to track a previous X ourselves.
             // A full window-width drag = one full 360° turn.
             if (menuDragging && !gameStarted) {
+
+                // We apply the rotation of the menu
+                // e.movementX how many pixels the mouse has moved horizontally since the last mousemove event. 
+                // / window.innerWidth to normalize
                 player.rotation.y += (e.movementX / window.innerWidth) * Math.PI * 2;
             }
+
+            // exit to not execute the camera code below
             return;
         }
-
+        
         // Known Pointer Lock quirk: the FIRST mousemove event right after
         // the lock is acquired often reports a large, bogus movementX/
         // movementY (browsers differ on exactly what it reflects, but it's
@@ -864,8 +890,12 @@ function init() {
             return;
         }
 
+        // Yaw rotation over the vertixal axis
+        // - to let mouse and the camera be synchronized (look on right, less yaw)
         cameraYaw -= e.movementX * mouseSensitivity;
+        // look below higher pitch
         cameraPitch += e.movementY * mouseSensitivity;
+        // Clamp of the vertical angle 
         cameraPitch = Math.max(minPitch, Math.min(maxPitch, cameraPitch));
     });
 
@@ -879,12 +909,17 @@ function init() {
     // false BEFORE calling exitPointerLock(), so a real death never
     // reaches this branch -- see triggerGameOver()).
     document.addEventListener('pointerlockchange', () => {
+
+        // The lock has been acquired
         if (document.pointerLockElement === renderer.domElement) {
-            // Lock just (re)acquired -- see ignoreNextMouseDelta above,
             // consumed by the very next mousemove event.
             ignoreNextMouseDelta = true;
+
+        // The lock has been released (but the game is started)
         } else if (gameStarted) {
             gamePaused = true;
+
+            // Show pause menu
             pauseMenuEl.classList.remove('hidden');
         }
     });
@@ -987,11 +1022,20 @@ function handleKeyboard(event, isKeyDown) {
 // the player walk freely across a platform's top instead of still being
 // blocked by its own base once standing on it.
 function collidesWithObstacle(x, z, y, entityRadius) {
+
+    // For every obstacle of the environment
     for (const obstacle of environmentObstacles) {
-        if (obstacle.topY !== undefined && y >= obstacle.topY - 0.3) continue;
+
+        // if the obstacle is scalable and the entity foot are on top (with 0.3 of tolerance)
+        if (obstacle.topY !== undefined && y >= obstacle.topY - 0.3) continue; // the obstacle is not blocking me
+
+        // We re computing the offset between the point of interest and the center of the obstacle
         const dx = x - obstacle.x;
         const dz = z - obstacle.z;
-        if (Math.hypot(dx, dz) < obstacle.radius + entityRadius) return true;
+
+        // Is the point inside the circle created by obstacle and entity?
+        // distance < obstacle.radius + entityRadius (minimum distance between obstacle and entity before they touch)
+        if (Math.hypot(dx, dz) < obstacle.radius + entityRadius) return true; // im colliding
     }
     return false;
 }
@@ -1011,14 +1055,30 @@ function collidesWithObstacle(x, z, y, entityRadius) {
 // boundary -- there's always a way out, straight back along the line
 // from the obstacle's own center.
 function resolveObstaclePenetration(position, entityRadius) {
+
+    // For every obstacle in the environment
     for (const obstacle of environmentObstacles) {
+
+        // If im above the climbable obstacle then there is no problem
         if (obstacle.topY !== undefined && position.y >= obstacle.topY - 0.3) continue;
+
+        // We re computing the offset between the point of interest and the center of the obstacle
         const dx = position.x - obstacle.x;
         const dz = position.z - obstacle.z;
+
+        // minimum distance between obstacle and entity before they touch
         const minDist = obstacle.radius + entityRadius;
+
+        // distance between the point of interest and the center of the obstacle
         const dist = Math.hypot(dx, dz);
+
+        // if the distance is > 0 and the distance is less than the minimum (im penetrating)
         if (dist > 0 && dist < minDist) {
+
+            // Computing the scale factor of how much i have to be pushed to solve the penetration
             const push = (minDist - dist) / dist;
+
+            // Move straight out by exactly the overlap
             position.x += dx * push;
             position.z += dz * push;
         }
@@ -1032,21 +1092,26 @@ function resolveObstaclePenetration(position, entityRadius) {
 // check as collidesWithObstacle() above, but with no entityRadius (a
 // bullet is a point for this purpose) and a different height rule: a
 // climbable obstacle (topY, see createProps()/createJumpPlatforms() in
-// environment.js) only blocks up to its own top -- a shot arriving from
-// above, over that top, is meant to be able to land ON it (see the
-// getGroundHeightAt() check at each bullet's own call site, which is
-// what actually stops it there) rather than being blocked early by this
-// check. A non-climbable obstacle (beacons/pillars, which carry `height`
-// instead) has no walkable top at all, so it blocks for its entire height.
+// environment.js) only blocks up to its own top 
 function bulletBlockedByObstacle(x, z, y) {
+
+    // For every obstacle in the environment
     for (const obstacle of environmentObstacles) {
+
+        // is the height where the bullet can fly 
         const solidTop = obstacle.topY !== undefined ? obstacle.topY : obstacle.height;
+
+        // The bullet is above the obstacle
         if (solidTop !== undefined && y >= solidTop) continue;
+
+        // We re computing the offset between the point of interest and the center of the obstacle
         const dx = x - obstacle.x;
         const dz = z - obstacle.z;
+
+        // Is the point inside the circle of the obstacle?
         if (Math.hypot(dx, dz) < obstacle.radius) return true;
     }
-    return false;
+    return false; // the bullet is not colliding
 }
 
 // ============================================================
@@ -1065,8 +1130,12 @@ function updateGame(deltaTime) {
 
     // Normalize so diagonal movement (e.g. W+D together) isn't faster
     // than moving in a single direction (otherwise it'd be sqrt(2)x speed).
+
+    // (moveForward,moveRight) is a vector
     const inputLength = Math.hypot(moveForward, moveRight);
     if (inputLength > 0) {
+
+        // Dividing the components of the vector by its length
         moveForward /= inputLength;
         moveRight /= inputLength;
     }
@@ -1074,7 +1143,7 @@ function updateGame(deltaTime) {
     // Convert that local input into world-space X/Z using the camera's
     // yaw. This is what makes W always "the direction the camera is
     // looking" instead of a fixed world direction 
-    //   forward = (sin(yaw), cos(yaw))
+    //   forward = (sin(yaw), cos(yaw)) (X,Z)
     //   right   = (-cos(yaw), sin(yaw)) -- 90° from forward, matched empirically to feel correct on screen
     const moveX = Math.sin(cameraYaw) * moveForward - Math.cos(cameraYaw) * moveRight;
     const moveZ = Math.cos(cameraYaw) * moveForward + Math.sin(cameraYaw) * moveRight;
@@ -1097,6 +1166,8 @@ function updateGame(deltaTime) {
     // along one axis only cancels movement along that axis, so moving
     // diagonally into the corner of a crate slides you along its edge
     // instead of just stopping dead.
+
+    // If you are inside the boundaries and you will not collide with an obstacle
     if (nextX > -limit && nextX < limit && !collidesWithObstacle(nextX, player.position.z, player.position.y, playerCollisionRadius)) {
         player.position.x = nextX;
     }
@@ -1110,6 +1181,8 @@ function updateGame(deltaTime) {
     // so this directly guarantees a way out regardless of which way the
     // player was actually trying to walk.
     resolveObstaclePenetration(player.position, playerCollisionRadius);
+    
+    // Just check if the push of resolveObstacle have pushed the player outside the boundaries
     player.position.x = Math.max(-limit, Math.min(limit, player.position.x));
     player.position.z = Math.max(-limit, Math.min(limit, player.position.z));
 
@@ -1125,25 +1198,24 @@ function updateGame(deltaTime) {
     // legs stop following movement exactly and the torso "drags along".
     // When standing still there's no movement direction to use, so the
     // whole body just faces the aim direction instead (feet settle in).
-    // 30° -- how far the legs can turn away from the torso. Originally 90°,
-    // but that let the legs get clamped to a full 90° (perpendicular/
-    // sideways-looking) for ANY movement direction between 90° and 180°
-    // away from the aim -- including running straight backward, which is
-    // exactly the case that looks worst. A tighter clamp keeps the legs
-    // close to the torso/aim direction at all times: diagonal strafing
-    // still gets a small natural lean, and backpedaling reads through the
-    // walkDirSign-flipped swing (see below) instead of a leg-orientation
-    // twist, so it never looks like the legs are stepping sideways.
-    const maxTwist = Math.PI / 6;
+    // 30° -- how far the legs can turn away from the torso. 
+    const maxTwist = Math.PI / 6; 
     if (isMoving) {
+
+        // direction where you are walking as an angle
         const moveAngle = Math.atan2(moveX, moveZ);
         // Shortest angular difference between where the legs WANT to
         // point and where the torso is aiming, wrapped to (-180°, 180°]
         // so we don't clamp the "long way around" by mistake.
+        // forward (sin yaw, cos yaw)
         let diff = Math.atan2(Math.sin(moveAngle - cameraYaw), Math.cos(moveAngle - cameraYaw));
         diff = Math.max(-maxTwist, Math.min(maxTwist, diff));
+
+        // Rotate the player toward the movement direction 
         player.rotation.y = cameraYaw + diff;
     } else {
+
+        // Rotate the player where im aiming
         player.rotation.y = cameraYaw;
     }
 
@@ -1160,26 +1232,22 @@ function updateGame(deltaTime) {
     // no more full 180° torso twists.
     player.userData.torso.rotation.y = cameraYaw - player.rotation.y;
 
-    // Tilts the torso/gun up or down to hint at the current look/aim
-    // pitch -- see shootBullet()/updateAimIndicator() below, which aim
-    // toward the camera's own crosshair point rather than using this
-    // angle directly, so this is purely cosmetic and can't desync the
-    // actual shot. Sign is INVERTED relative to cameraPitch: positive
-    // cameraPitch means the camera sits higher and looks further DOWN
-    // (see updateCamera()), so the torso needs the opposite sign to
-    // lean the same way the camera is actually looking. The torso
-    // mesh's own pivot sits at its geometric center rather than at a
-    // hip/neck joint (there's no separate waist bone to bend at), so
-    // rotating it by the full angle reads as the whole block pivoting
-    // oddly around its middle instead of a natural lean -- toning the
-    // VISUAL tilt down (torsoTiltFactor) keeps the pose readable.
+    // Tilts the torso/gun up or down to match the current look pitch --
+    // purely cosmetic (shootBullet()/updateAimIndicator() aim at the
+    // camera's crosshair point, not this angle, so it can't desync the
+    // shot). Same sign as cameraPitch: looking down (cameraPitch > 0)
+    // tips the torso's front down (rotation.x > 0). 
+    // The torso rotates around its own center (there's no waist joint), so
+    // the full pitch angle would look like the whole block tipping oddly.
+    // torsoTiltFactor keeps it to a subtle lean instead.
     const torsoTiltFactor = 0.45;
-    player.userData.torso.rotation.x = -cameraPitch * torsoTiltFactor;
+    player.userData.torso.rotation.x = cameraPitch * torsoTiltFactor;
 
     // --- Walk-direction sign ---
     // animateWalk()'s swing is just a function of elapsed time, so on its
     // own it can't tell whether the legs are currently facing the same way
-    // the body is actually translating. When the maxTwist clamp above is
+    // the body is actually translating. 
+    // When the maxTwist clamp above is
     // maxed out (e.g. running backward while aiming forward), the legs can
     // end up pointing away from the real movement direction -- without this
     // check they'd play a "walking forward" cycle while the body slides
@@ -1519,18 +1587,30 @@ function updateAimIndicator() {
 // timer is running.
 // ============================================================
 function createStrengthAura() {
+
+    // Defining the group for both the rings
     strengthAura = new THREE.Group();
 
+    // Creation of the first ring
+
+    // Material
     const ringMat1 = new THREE.MeshStandardMaterial({
         color: 0x331a00, emissive: 0xff8800, emissiveIntensity: 2.2,
-        transparent: true, opacity: 0.6, side: THREE.DoubleSide
+        transparent: true, opacity: 0.6, side: THREE.DoubleSide // Render inner and outer surface
     });
+
+    // Mesh (geometry)
+    // THREE.TorusGeometry(radius, tube, radialSegment, tubularSegments)
     const ring1 = new THREE.Mesh(new THREE.TorusGeometry(0.7, 0.035, 8, 24), ringMat1);
+    // TorusGeometry borns vertical, with this rotation is horizzontal
     ring1.rotation.x = Math.PI / 2;
     strengthAura.add(ring1);
 
+    // Same material
     const ringMat2 = ringMat1.clone();
+    // Slightly smaller
     const ring2 = new THREE.Mesh(new THREE.TorusGeometry(0.5, 0.03, 8, 24), ringMat2);
+    // offset to give a better effect
     ring2.rotation.x = Math.PI / 2.3;
     strengthAura.add(ring2);
 
@@ -1542,10 +1622,15 @@ function createStrengthAura() {
 // (including jump height) and keeps both rings spinning; visibility is
 // just a direct reflection of whether the buff timer is still running.
 function updateStrengthAura(deltaTime) {
+    // Visible only if the timer is > 0
     strengthAura.visible = strengthBuffTimer > 0;
     if (!strengthAura.visible) return;
 
+    // Set the aura on the player
     strengthAura.position.set(player.position.x, player.position.y + 0.1, player.position.z);
+
+    // Managing the rotation of the two rings
+    // They rotate over z in two opposite directions
     strengthAura.children[0].rotation.z += deltaTime * 1.8;
     strengthAura.children[1].rotation.z -= deltaTime * 2.4;
 }
@@ -2056,25 +2141,27 @@ function onWindowResize() {
 // This is what makes the game "run" continuously.
 // ============================================================
 function animate() {
-    requestAnimationFrame(animate); // schedule the next frame
 
-    const deltaTime = clock.getDelta(); // seconds elapsed since the last frame
+    // When you are ready to draw the next frame call animate
+    requestAnimationFrame(animate); 
+
+    const deltaTime = clock.getDelta(); // seconds elapsed since the last frame (last call to clock.getDelta())
 
     if (gameStarted && !gamePaused) {
+
         updateGame(deltaTime); // move player, update camera -- keeps running during the post-victory epilogue too, see below
         updateBullets(deltaTime); // move the player's own bullets, remove expired ones -- also kept running post-victory, purely cosmetic once there's nothing left to hit
+
         if (!victoryActive) {
             // Wave/enemy simulation stops the instant the boss dies
-            // (triggerVictory() sets victoryActive) -- without this
-            // guard, updateEnemies() would notice waveEnemiesRemaining
-            // is still 0 on EVERY subsequent frame and call
-            // triggerVictory() again each time, endlessly re-arming its
-            // reload timer so it would never actually fire.
+            // (triggerVictory() sets victoryActive)
             updateEnemies(deltaTime); // spawn/move/attack enemies, check player bullets against them
             updateEnemyBullets(deltaTime); // move enemy bullets, check them against the player
             updatePowerUps(deltaTime); // spawn/animate power-ups, pick up any the player is standing on
         }
     } else if (!gameStarted) {
+
+        // The game is not started we manage the menù preview
         updateMenuPreview(deltaTime); // idle turntable + camera framing behind the main menu
     }
     // else: gameStarted && gamePaused -- render the frozen scene as-is,
@@ -2085,8 +2172,10 @@ function animate() {
     // frame so anything spawned mid-toon-mode (a new bullet, enemy,
     // power-up) gets converted automatically instead of appearing in
     // the wrong style (see dimensionShift.js).
+    // applyLook is not called here because modifies stuff that changes only the first time
     syncSceneToCurrentDimension(scene);
 
+    // Everything is on his position
     composer.render(); // draw the scene through the post-processing pipeline (bloom, etc.)
 }
 
