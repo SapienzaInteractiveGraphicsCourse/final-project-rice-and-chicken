@@ -6,64 +6,82 @@ import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.j
 // Everything that makes the arena read as a PLACE 
 // ============================================================
 
-const BOUNDARY = 32;           // matches the movement clamp in updateGame() (main.js)
-const WALL_DISTANCE = 33.5;    // just outside BOUNDARY so the player's own model never clips into the wall mesh
+const WALL_DISTANCE = 33.5;    // just outside the movement clamp (32, see updateGame() in main.js) so the player's own model never clips into the wall mesh
 const GROUND_HALF_SIZE = 36;   // extends a little past the walls so there's no visible gap/void at their base
-
-// How high (in world Y) the player can actually jump -- see jumpForce/
-// gravity in main.js: v^2 / (2*|g|) = 100/50 = 2.0 units. Every
-// jump-platform below is built well under this so clearing one is
-// reliable, not a pixel-perfect edge case.
-const MAX_JUMP_HEIGHT = 2.0;
 
 // Small tileable canvas texture: dark panel base + a bright teal grid
 // line per cell
 function createGridTexture() {
+
+    // Create a canvas 256x256
     const size = 256;
     const canvas = document.createElement('canvas');
     canvas.width = size;
     canvas.height = size;
+
+    // Get the 2D drawing context of the canvas to draw on
     const ctx = canvas.getContext('2d');
 
+    // We fill the whole square with this dark-grey blue
     ctx.fillStyle = '#1c2036'; 
     ctx.fillRect(0, 0, size, size);
 
     // Faint inner subdivision first, so the brighter cell border draws on top
+
+    // Color of the inner cross
     ctx.strokeStyle = 'rgba(0, 255, 204, 0.08)';
     ctx.lineWidth = 1;
+
+    // start a new path
     ctx.beginPath();
+
+    // Vertical line
     ctx.moveTo(size / 2, 0); ctx.lineTo(size / 2, size);
+    // Horizzontal line
     ctx.moveTo(0, size / 2); ctx.lineTo(size, size / 2);
+    // "draw on the canvas"
     ctx.stroke();
 
+    // more visible than the cross
     ctx.strokeStyle = 'rgba(0, 255, 204, 0.3)';
     ctx.lineWidth = 2;
+
+    // This writes the outline of the rectangle
     ctx.strokeRect(0, 0, size, size);
 
+    // Create the texture 
     const texture = new THREE.CanvasTexture(canvas);
+
+    // We set the wrapping mode to RepeatWrapping for both S (horizontal) and T (vertical) directions.
     texture.wrapS = THREE.RepeatWrapping;
     texture.wrapT = THREE.RepeatWrapping;
-    texture.repeat.set(16, 16); // ~4.5-unit cells across the now-72-unit ground
+    texture.repeat.set(16, 16); // ~4.5-unit cells across the now-72-unit ground (16 times horizzontal, 16 times vertical)
     texture.colorSpace = THREE.SRGBColorSpace; // this is a color/diffuse map, unlike normal/roughness maps
     return texture;
 }
 
 function createGround(scene) {
+
+    // Creation of Geometry and material of the plane
     const groundGeo = new THREE.PlaneGeometry(GROUND_HALF_SIZE * 2, GROUND_HALF_SIZE * 2);
     const groundMat = new THREE.MeshStandardMaterial({
         color: 0x2a2f4a, 
-        roughness: 0.8,
+        roughness: 0.8, // Matt
         map: createGridTexture()
     });
+
+    // Mesh creation
     const ground = new THREE.Mesh(groundGeo, groundMat);
     ground.rotation.x = -Math.PI / 2; // planes face up (Z) by default -- rotate flat onto the XZ plane
-    ground.receiveShadow = true;
+    ground.receiveShadow = true; // The ground can receive the shadows
     scene.add(ground);
     return ground;
 }
 
 // Low wall ring right at the arena's actual boundary 
 function createPerimeterWalls(scene) {
+
+    // Defining the material
     const panelMat = new THREE.MeshStandardMaterial({ color: 0x2c2c3d, roughness: 0.6, metalness: 0.4 }); 
     const trimMat = new THREE.MeshStandardMaterial({ color: 0x003322, emissive: 0x00ffcc, emissiveIntensity: 1.4 });
 
@@ -73,8 +91,13 @@ function createPerimeterWalls(scene) {
     // little at the corners instead of leaving a gap.
     const segmentLength = WALL_DISTANCE * 2 + wallThickness;
 
+    // This function builds a wall, created to not repeat the code
     function addWall(x, z, rotationY) {
+
         const wall = new THREE.Mesh(new THREE.BoxGeometry(segmentLength, wallHeight, wallThickness), panelMat);
+
+        // BoxGeometry is centered on the own origin, a box 2.2 goes from -1.1 to 1.1 wrt the origin
+        // with y=0 half of the wall would go below the floor, with y=1.1 half of the wall goes on top and the other half below
         wall.position.set(x, wallHeight / 2, z);
         wall.rotation.y = rotationY;
         wall.castShadow = true;
@@ -104,10 +127,14 @@ function createPerimeterWalls(scene) {
 // surface -- these aren't jumpable -- it's just how tall a solid body
 // bullets need to check against (see bulletBlockedByObstacle() in main.js).
 function createCornerBeacons(scene) {
+
+    // Defining the materials
     const pillarMat = new THREE.MeshStandardMaterial({ color: 0x33333f, roughness: 0.5, metalness: 0.5 });
     const glowMat = new THREE.MeshStandardMaterial({ color: 0x220000, emissive: 0xff3344, emissiveIntensity: 2.5 });
 
     const pillarHeight = 4.5;
+
+    // [x,z]
     const corners = [
         [WALL_DISTANCE, WALL_DISTANCE], [WALL_DISTANCE, -WALL_DISTANCE],
         [-WALL_DISTANCE, WALL_DISTANCE], [-WALL_DISTANCE, -WALL_DISTANCE]
@@ -124,6 +151,7 @@ function createCornerBeacons(scene) {
         beacon.position.set(x, pillarHeight + 0.2, z);
         scene.add(beacon);
 
+        // THREE.PointLight(color, intensity, distance)
         const beaconLight = new THREE.PointLight(0xff3344, 6, 16);
         beaconLight.position.set(x, pillarHeight + 0.2, z);
         scene.add(beaconLight);
@@ -137,8 +165,8 @@ function createCornerBeacons(scene) {
 // set dressing (no collision, same as everything else in this project
 // that isn't the player/enemy hit-radius checks), just enough visual
 // clutter that the floor doesn't read as one huge empty square. Also
-// climbable, same as the dedicated jump-platforms above (their own
-// height is well within jump range -- see MAX_JUMP_HEIGHT -- but a
+// climbable, same as the dedicated jump-platforms below (their own
+// height is well within jump range -- see createJumpPlatforms() -- but a
 // crate's random size can land right at the edge of it, or just past;
 // that's fine, it just means not every crate is reachable). Returns one
 // {x, z, radius, topY} collision circle per crate -- radius is the
@@ -149,22 +177,25 @@ function createCornerBeacons(scene) {
 // blocked by the crate's own base (the "invisible wall" this used to
 // have before topY existed here).
 function createProps(scene) {
+
+    // Defining the materials
     const crateMat = new THREE.MeshStandardMaterial({ color: 0x4a4632, roughness: 0.7, metalness: 0.2 }); 
     const stripeMat = new THREE.MeshStandardMaterial({ color: 0x442200, emissive: 0xffaa00, emissiveIntensity: 1.2 });
 
     const cratePositions = [
         [8, 6], [8.8, 8.4], [-10, -5], [-9, 4.2], [5, -12],
         [-14, 12], [13, -8], [-6, 15], [16, 3], [-17, -10],
-        // Extra crates further out, filling the space the wider arena
-        // (see BOUNDARY above) opened up.
         [24, 18], [-24, 20], [22, -22], [-22, -18], [2, 26], [-2, -27]
     ];
 
+    // Creation of all the crates
     const obstacles = [];
     for (const [x, z] of cratePositions) {
+
+        // to let the dimension be casual
         const size = 1.3 + Math.random() * 0.7;
 
-     
+        // Crate creation
         const crate = new THREE.Mesh(new RoundedBoxGeometry(size, size, size, 2, size * 0.06), crateMat);
         crate.position.set(x, size / 2, z);
         crate.rotation.y = Math.random() * Math.PI;
@@ -175,10 +206,16 @@ function createProps(scene) {
         // Warning stripe on one face -- child of the crate, so it's
         // carried along by that random rotation instead of needing its
         // own placement math.
+
+        // A flat box
         const stripe = new THREE.Mesh(new THREE.BoxGeometry(size * 0.9, size * 0.12, 0.03), stripeMat);
+        // +0.001 to avoid flickering
+        // on z we add size/2 to let the stripe be visible on the frontal phase
         stripe.position.set(0, 0, size / 2 + 0.001);
         crate.add(stripe);
 
+        // We re adding to obstacles the object that describes the crate's footprint
+        // The radius is half the diagonal (because the whole circle have to contain the whole crate, even the angles)
         obstacles.push({ x, z, radius: (size / 2) * Math.SQRT2, topY: size });
     }
     return obstacles;
@@ -190,36 +227,51 @@ function createProps(scene) {
 // outline, cheap and reads clearly from a normal play distance. Used
 // here to mark a platform's top as "this one is walkable", something
 // a plain crate doesn't advertise.
+
+// xyz is the center of the jumpPlatform
+// halfSize is half of the width of the jumpPlatform
+// Color here to create different borders
 function addTopRimTrim(scene, x, y, z, halfSize, color) {
+
+    // Creating the material
     const trimMat = new THREE.MeshStandardMaterial({ color: 0x0a0a12, emissive: color, emissiveIntensity: 1.8 });
+    // Bar thickness from top down view
     const t = 0.08;
+
+    // Each border is composed by 4 bars
+    // w width (length over x)
+    // d depth (length over Z)
+    // sx, sz where the bar goes over the plane
     function seg(sx, sz, w, d) {
         const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, 0.05, d), trimMat);
         mesh.position.set(sx, y, sz);
         scene.add(mesh);
     }
-    seg(x, z - halfSize, halfSize * 2 + t, t);
-    seg(x, z + halfSize, halfSize * 2 + t, t);
-    seg(x - halfSize, z, t, halfSize * 2 + t);
-    seg(x + halfSize, z, t, halfSize * 2 + t);
+
+    seg(x, z - halfSize, halfSize * 2 + t, t);  // horizzontal bar ahead
+    seg(x, z + halfSize, halfSize * 2 + t, t);  // horizzontal bar behing
+    seg(x - halfSize, z, t, halfSize * 2 + t);  // Vertical bar on the left
+    seg(x + halfSize, z, t, halfSize * 2 + t);  // Vertical bar on the right
 }
 
-// A handful of climbable platforms -- unlike the crates above (pure
-// horizontal obstacles), these are boxes the player can actually JUMP
-// ON TOP OF: they still block horizontal movement like a crate does,
+// A handful of climbable platforms, these are boxes the player can actually JUMP
+// ON TOP OF: they still block horizontal movement,
 // but also carry a `topY` -- see collidesWithObstacle()/
 // getGroundHeightAt() below and in main.js, which is what lets the
 // player's own collision check ignore a platform once they're standing
 // above its top, and what tells updateVerticalMovement() (main.js) to
 // treat that top as solid ground instead of just falling straight
-// through it. Deliberately only SOME objects in the arena work this way
-// (a plain crate stays a plain crate) -- the glowing top rim is the
-// visual cue telling them apart.
+// through it. 
 function createJumpPlatforms(scene) {
+
+    
     const platformMat = new THREE.MeshStandardMaterial({ color: 0x3a3f4a, roughness: 0.55, metalness: 0.4 });
     const obstacles = [];
 
     // { x, z, size (width/depth), height, color }
+    // Heights are kept well under the player's max jump -- jumpForce/gravity
+    // in main.js give v^2 / (2*|g|) = 100/50 = 2.0 world units -- so clearing
+    // a platform is reliable, not a pixel-perfect edge case.
     const platforms = [
         { x: 12, z: 12, size: 3.2, height: 1.5, color: 0x00ffcc },
         { x: -15, z: -6, size: 3.6, height: 1.3, color: 0x00ffcc },
@@ -229,13 +281,18 @@ function createJumpPlatforms(scene) {
         { x: 4, z: -20, size: 3.2, height: 1.3, color: 0xbb66ff }
     ];
 
+    // Creating every platform
     for (const p of platforms) {
+
         const platform = new THREE.Mesh(new RoundedBoxGeometry(p.size, p.height, p.size, 2, 0.08), platformMat);
+
+        // height/2 because the origin starts from 0
         platform.position.set(p.x, p.height / 2, p.z);
         platform.castShadow = true;
         platform.receiveShadow = true;
         scene.add(platform);
 
+        // + 0.03 to avoid flickering
         addTopRimTrim(scene, p.x, p.height + 0.03, p.z, p.size / 2, p.color);
 
         // radius slightly bigger than half the box so a straight-on
@@ -257,12 +314,21 @@ function createJumpPlatforms(scene) {
 // top. Falls back to 0 (the main ground) if nothing qualifies, same as
 // if there were no climbable obstacles at all.
 export function getGroundHeightAt(obstacles, x, z, currentY) {
+
+    // Start from the ground
+    // We check for the best because obstacles can overlap
     let best = 0;
     for (const o of obstacles) {
         if (o.topY === undefined) continue; // not a climbable platform -- plain crates/beacons don't have a walkable top
+
+        // We re computing the offset between the point of interest and the center of the obstacle
         const dx = x - o.x;
         const dz = z - o.z;
+
+        // Is the point outside the circle of the obstacle?
         if (Math.hypot(dx, dz) > o.radius) continue;
+
+        // We check if i can arrive to the obstacle (+0.6 because the gravity slightly lowers you even if you stay still)
         if (o.topY <= currentY + 0.6 && o.topY > best) best = o.topY;
     }
     return best;
@@ -277,13 +343,22 @@ export function getGroundHeightAt(obstacles, x, z, currentY) {
 // landing/gravity once already airborne. Returns null if nothing
 // climbable overlaps that point (a plain crate/pillar's own wall,
 // or just empty ground).
+// Is there a walkable topped obstacle at this (x,z) and how high is its top?
 export function getClimbableHeightAt(obstacles, x, z) {
+
+    // Here you will start from nothing climbable
     let best = null;
     for (const o of obstacles) {
-        if (o.topY === undefined) continue;
+        if (o.topY === undefined) continue; // not a climbable platform -- plain crates/beacons don't have a walkable top
+
+        // We re computing the offset between the point of interest and the center of the obstacle
         const dx = x - o.x;
         const dz = z - o.z;
+
+        // Is the point outside the circle of the obstacle?
         if (Math.hypot(dx, dz) > o.radius) continue;
+
+        // Is best null or is this higher then the current best?
         if (best === null || o.topY > best) best = o.topY;
     }
     return best;
@@ -294,12 +369,11 @@ const SKY_HORIZON_COLOR = 0x050510; // matches the fog color below so the ground
 // A large inverted sphere with a vertical gradient (dark navy near the
 // top, fading to the fog color at the horizon) instead of a flat
 // scene.background color, plus a scattering of distant points for
-// stars. Built from a custom GLSL shader rather than a downloaded
-// HDRI/skybox image
+// stars. Built from a custom GLSL shader 
 function createSkybox(scene) {
     const skyGeo = new THREE.SphereGeometry(400, 24, 16);
     const skyMat = new THREE.ShaderMaterial({
-        side: THREE.BackSide,
+        side: THREE.BackSide, 
         fog: false, // this IS the backdrop -- it shouldn't fog itself out
         uniforms: {
             topColor: { value: new THREE.Color(0x0a1030) },
@@ -308,8 +382,15 @@ function createSkybox(scene) {
         vertexShader: `
             varying vec3 vWorldPosition;
             void main() {
+
+                // position is the position of the vertex in the local space of the sphere
+                // Since we have to multiply the position for a matrix we need 1.0 as width
                 vec4 worldPosition = modelMatrix * vec4(position, 1.0);
+
+                // Saving the world position inside the varying 
                 vWorldPosition = worldPosition.xyz;
+
+                // Tells to the GPU where the vertex goes
                 gl_Position = projectionMatrix * viewMatrix * worldPosition;
             }
         `,
@@ -318,31 +399,75 @@ function createSkybox(scene) {
             uniform vec3 bottomColor;
             varying vec3 vWorldPosition;
             void main() {
+
+                // normalize the point to be a direction * 0.5 + 0.5 to be between [0,1]
                 float h = normalize(vWorldPosition).y * 0.5 + 0.5;
+
+                // mix the two colors
+                // clamp forces the value between 0 and 1 (technically is already between 0,1 but there can be floating point errors)
+                // 1.0 is alpha 
                 gl_FragColor = vec4(mix(bottomColor, topColor, clamp(h, 0.0, 1.0)), 1.0);
             }
         `
     });
+
     const sky = new THREE.Mesh(skyGeo, skyMat);
     scene.add(sky);
 
-    // Stars: random points on a shell around the arena, upper hemisphere
-    // only. fog:false for the same reason as the sky material -- at this
-    // distance the default fog-far (85) would otherwise wash every one
-    // of them out to the fog color, making them invisible.
+    // Stars: a procedurally generated cloud of points scattered on a
+    // spherical shell far around the arena, upper hemisphere only.
+    // fog:false for the same reason as the sky material -- at this
+    // distance the fog would otherwise wash every one of them out to the
+    // fog color, making them invisible.
+
     const starCount = 800;
+
+    // Flat array holding every star's position, 3 numbers (x,y,z) per
+    // star packed one after another: star i lives at indices 3i, 3i+1,
+    // 3i+2. Float32Array (not a plain [] array) is the format the GPU
+    // wants for vertex data.
     const positions = new Float32Array(starCount * 3);
+
     for (let i = 0; i < starCount; i++) {
+
+        // --- pick a random point on a sphere, in spherical coordinates ---
+
+        // radius = how far this star sits from the world center (NOT the
+        // star's own size). 
         const radius = 350 + Math.random() * 40;
+
+        // theta = azimuth: the "compass direction" around the vertical
+        // (Y) axis, a full turn, uniform.
         const theta = Math.random() * Math.PI * 2;
+
+        // phi = polar angle: how far down from straight-up (the +Y pole).
         const phi = Math.acos(Math.random() * 2 - 1);
-        positions[i * 3] = radius * Math.sin(phi) * Math.cos(theta);
-        positions[i * 3 + 1] = Math.abs(radius * Math.cos(phi));
-        positions[i * 3 + 2] = radius * Math.sin(phi) * Math.sin(theta);
+
+        // --- spherical (radius, theta, phi) -> cartesian (x, y, z) ---
+        // sin(phi) = horizontal distance from the Y axis; cos(phi) = the
+        // vertical part; cos/sin(theta) split the horizontal part into X
+        // and Z (the compass direction).
+        positions[i * 3] = radius * Math.sin(phi) * Math.cos(theta); // X
+        // Math.abs() forces the vertical component positive -> every star
+        // ends up in the UPPER half (no stars below the arena floor,
+        // where they'd never be seen).
+        positions[i * 3 + 1] = Math.abs(radius * Math.cos(phi));         // Y
+        positions[i * 3 + 2] = radius * Math.sin(phi) * Math.sin(theta); // Z
     }
+
+    // Build a geometry straight from that raw array: no primitive shape,
+    // just "here are 800 vertices" -- setAttribute('position', ..., 3)
+    // means "3 numbers per vertex".
     const starGeo = new THREE.BufferGeometry();
     starGeo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+
+    // sizeAttenuation:false -> stars keep the same on-screen size no
+    // matter their distance (so `size` is in screen pixels, not world
+    // units); without it perspective would shrink the farther ones.
     const starMat = new THREE.PointsMaterial({ color: 0xaaccff, size: 1.4, sizeAttenuation: false, fog: false });
+
+    // THREE.Points: like a Mesh, but it draws each vertex as a dot
+    // instead of joining them into triangles.
     const stars = new THREE.Points(starGeo, starMat);
     scene.add(stars);
 
@@ -359,7 +484,7 @@ function createSkybox(scene) {
 // movement clamp in updateGame(), see WALL_DISTANCE above, so the
 // player never reaches them).
 export function createEnvironment(scene) {
-    scene.fog = new THREE.Fog(SKY_HORIZON_COLOR, 38, 105); // pushed out from 30/85 to match the wider arena (see BOUNDARY above)
+    scene.fog = new THREE.Fog(SKY_HORIZON_COLOR, 38, 105); 
     const { sky, stars } = createSkybox(scene);
     createGround(scene);
     createPerimeterWalls(scene);
@@ -370,5 +495,7 @@ export function createEnvironment(scene) {
     // dimensionShift.js -- Dimension Shift repaints them for its
     // day/night look instead of just the per-mesh material swap that
     // handles everything else in the scene (see initDimensionShift()).
+
+    // ... spread operator inside the square brackets, spread all the elements of the array into the new array 
     return { obstacles: [...beaconObstacles, ...crateObstacles, ...platformObstacles], sky, stars };
 }
