@@ -1243,27 +1243,7 @@ function updateGame(deltaTime) {
     const torsoTiltFactor = 0.45;
     player.userData.torso.rotation.x = cameraPitch * torsoTiltFactor;
 
-    // --- Walk-direction sign ---
-    // animateWalk()'s swing is just a function of elapsed time, so on its
-    // own it can't tell whether the legs are currently facing the same way
-    // the body is actually translating. 
-    // When the maxTwist clamp above is
-    // maxed out (e.g. running backward while aiming forward), the legs can
-    // end up pointing away from the real movement direction -- without this
-    // check they'd play a "walking forward" cycle while the body slides
-    // backward (moonwalk). We detect the mismatch with a dot product
-    // between the world movement vector and the legs' own forward vector
-    // ((sin, cos) of player.rotation.y, same convention as everywhere else)
-    // and flip the swing sign when they disagree.
-    let walkDirSign = 1;
-    if (isMoving) {
-        const legsForwardX = Math.sin(player.rotation.y);
-        const legsForwardZ = Math.cos(player.rotation.y);
-        const dot = moveX * legsForwardX + moveZ * legsForwardZ;
-        walkDirSign = dot >= 0 ? 1 : -1;
-    }
-
-    animateWalk(isMoving, deltaTime, walkDirSign); // swing arms/legs while moving
+    animateWalk(isMoving, deltaTime); // swing arms/legs while moving
 
     updateVerticalMovement(deltaTime); // apply gravity / jump
 
@@ -1348,12 +1328,8 @@ function updateVerticalMovement(deltaTime) {
 // pauses instantly (rather than finishing mid-swing) when they stop.
 // Left leg and right arm swing together, right leg and left arm swing
 // together — this mimics how a real human gait alternates sides.
-//
-// walkDirSign (computed in updateGame, see comment there) flips the
-// swing when the body is translating opposite to where the legs are
-// currently facing 
 // ============================================================
-function animateWalk(isMoving, deltaTime, walkDirSign = 1) {
+function animateWalk(isMoving, deltaTime) {
     const { leftArm, rightArm, leftLeg, rightLeg } = player.userData;
 
     if (isMoving) {
@@ -1362,9 +1338,7 @@ function animateWalk(isMoving, deltaTime, walkDirSign = 1) {
 
     // amplitude = how far (in radians) each limb swings forward/back.
     // When not moving, amplitude is 0, so limbs snap back to resting pose.
-    // walkDirSign (see updateGame) flips this when the body is actually
-    // translating opposite to where the legs are currently facing.
-    const amplitude = isMoving ? 0.6 * walkDirSign : 0;
+    const amplitude = isMoving ? 0.6 : 0;
     const swing = Math.sin(walkTime) * amplitude;
 
     leftLeg.rotation.x = swing;

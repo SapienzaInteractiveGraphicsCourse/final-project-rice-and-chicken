@@ -378,9 +378,7 @@ export class Enemy {
     }
 
     // Procedural walk-cycle, same sine-wave-on-rotation.x trick as the
-    // player's animateWalk() in main.js -- no imported animation, and no
-    // walkDirSign correction needed here since (unlike the player) this
-    // body always faces exactly the direction it's moving.
+    // player's animateWalk() in main.js -- no imported animation.
     animateWalk(isMoving, deltaTime) {
 
         // Only advance the walkTime sine wave while actually moving, 7 is the speed of the walk cycle, it can be adjusted to make the walk cycle faster or slower
