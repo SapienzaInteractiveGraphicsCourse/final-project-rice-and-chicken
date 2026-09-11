@@ -408,15 +408,14 @@ export class Enemy {
 
         // Clone the player's current position to avoid mutating the original
         const target = context.playerPosition.clone();
-        if (context.playerVelocity) {
 
-            // compute the time it would take for a bullet to reach the player
-            const travelTime = target.distanceTo(spawnPos) / bulletSpeed;
+        // compute the time it would take for a bullet to reach the player
+        const travelTime = target.distanceTo(spawnPos) / bulletSpeed;
 
-            // target = playerPosition + playerVelocity * travelTime
-            // (playerVelocity * travelTime) gives the distance the player will have moved in that time, and we add it to their current position to get the predicted position
-            target.addScaledVector(context.playerVelocity, travelTime);
-        }
+        // target = playerPosition + playerVelocity * travelTime
+        // (playerVelocity * travelTime) gives the distance the player will have moved in that time, and we add it to their current position to get the predicted position
+        target.addScaledVector(context.playerVelocity, travelTime);
+        
         return target;
     }
 

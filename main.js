@@ -297,9 +297,19 @@ let playerVelocity = new THREE.Vector3();
 //     +-- torso (main body)
 //           |
 //           +-- head       (child of torso)
+//              +-- visor  (child of head)
 //           +-- leftArm    (child of torso)
 //           +-- rightArm   (child of torso)
+//              +-- gun    (child of rightArm)
+//           +-- Backpack   (child of torso)
+//           +-- chestCore  (child of torso)
+//           +-- leftPauldron  (child of torso)
+//           +-- rightPauldron  (child of torso)
 //
+//           +-- leftLeg  (child of playerGroup)
+//              +-- leftBoot     (child of rightLeg)
+//           +-- rightLeg  (child of playerGroup)
+//              +-- rightBoot    (child of rightLeg)
 // Head and arms are added as children of the TORSO, not of the
 // group directly. That means their position values (e.g. head's
 // y = 0.95) are RELATIVE to the torso's own origin, not to the
@@ -308,6 +318,7 @@ let playerVelocity = new THREE.Vector3();
 // to manually update the head/arms position every frame.
 // ============================================================
 function createPlayer(playerClass) {
+
     const playerGroup = new THREE.Group(); // an empty container, just holds child objects
 
     // Body colors/materials come from the active PlayerClass (see
@@ -445,7 +456,7 @@ function createPlayer(playerClass) {
     playerGroup.userData.rightLeg = rightLeg;
     playerGroup.userData.head = head;
     playerGroup.userData.gun = gun;
-    playerGroup.userData.muzzle = gun.userData.muzzle; // barrel tip -- kept as a marker of where the gun visually is, though bullets themselves now spawn from getBulletSpawnPoint() instead (see shootBullet()), not from here
+    playerGroup.userData.muzzle = gun.userData.muzzle; // barrel tip 
     playerGroup.userData.playerClass = playerClass; // so switchWeapon() knows this class's loadout
 
     return playerGroup;
@@ -460,21 +471,32 @@ function createPlayer(playerClass) {
 // concrete weapon it's switching to or from.
 // ============================================================
 function switchWeapon(index) {
+
+    // Retrieving the weapons of the current class
     const classWeapons = player.userData.playerClass.weapons;
+
+    // if the current index is the one pressed or the index is negative or the index is greater than the possible classes than skip
     if (index === currentWeaponIndex || index < 0 || index >= classWeapons.length) return;
+
+    // switch the index
     currentWeaponIndex = index;
 
+    // retrieve the rightArm and remove the current gun
     const rightArm = player.userData.rightArm;
     rightArm.remove(player.userData.gun);
 
+    // Create the new gun and add it to the right arm
     const gun = classWeapons[currentWeaponIndex].createModel();
     gun.position.set(0, -0.35, 0.25); // same anchor point used in createPlayer()
     rightArm.add(gun);
 
+    // Change the user data
     player.userData.gun = gun;
     player.userData.muzzle = gun.userData.muzzle;
 
+    // Apply the new shot cooldown
     shotCooldown = classWeapons[currentWeaponIndex].fireRate; // no instant shot right after switching
+    // update the UI
     updateWeaponSelectorUI();
 }
 
@@ -486,19 +508,28 @@ function switchWeapon(index) {
 // doesn't teleport or disorient the player.
 // ============================================================
 function switchPlayerClass(index) {
+
+    // if the current index is the one pressed or the index is negative or the index is greater than the possible classes than skip
     if (index === currentClassIndex || index < 0 || index >= playerClasses.length) return;
+
+    // Update the class index
     currentClassIndex = index;
     currentWeaponIndex = 0; // start back on the new class's primary weapon
 
+    // set the same position as before with the same rotation
     const { x, y, z } = player.position;
     const facing = player.rotation.y;
 
+    // remove the old player
     scene.remove(player);
+
+    // Add the new player
     player = createPlayer(playerClasses[currentClassIndex]);
     player.position.set(x, y, z);
     player.rotation.y = facing;
     scene.add(player);
 
+    // Update the shot cooldown
     shotCooldown = playerClasses[currentClassIndex].weapons[currentWeaponIndex].fireRate;
     refreshClassSelectorUI(); // keep the menu's class box in sync, whether triggered by [C] or the menu arrows
     updateWeaponSelectorUI(); // the new class brings its own weapon loadout, so refresh the HUD too
@@ -551,31 +582,47 @@ const weaponNameEls = [document.getElementById('weapon-name-0'), document.getEle
 // (see weapons/Weapon.js and its subclasses) rather than hardcoding
 // per-weapon-type logic here.
 function updateWeaponSelectorUI() {
+
+    // taking the two weapons of the currentClass
     const classWeapons = player.userData.playerClass.weapons;
+    // for each box (they are two)
     for (let i = 0; i < weaponBoxEls.length; i++) {
         const weapon = classWeapons[i];
+
+        // Fill the icon, name and 
         weaponIconEls[i].innerHTML = weapon.icon;
         weaponNameEls[i].textContent = weapon.name;
+
+        // highlight the active weapon
         weaponBoxEls[i].classList.toggle('active', i === currentWeaponIndex);
     }
 }
 
+// Update the class selector on the main menù
 function refreshClassSelectorUI() {
+
+    // Take the current class
     const cls = playerClasses[currentClassIndex];
+    // writing the class name in uppercase
     classNameEl.textContent = cls.name.toUpperCase();
+    // defining the color for this class
     const hex = '#' + cls.bodyColor.toString(16).padStart(6, '0');
     classSwatchEl.style.backgroundColor = hex;
+    // defining a colored shadow
     classSwatchEl.style.boxShadow = `0 0 12px ${hex}`;
 }
 
 function initMenu() {
+
+    // Registering the event listener to switch class on main menù
     document.getElementById('class-prev').addEventListener('click', () => {
-        switchPlayerClass((currentClassIndex - 1 + playerClasses.length) % playerClasses.length);
+        switchPlayerClass((currentClassIndex - 1 + playerClasses.length) % playerClasses.length); // this computation to avoid negative errors
     });
     document.getElementById('class-next').addEventListener('click', () => {
-        switchPlayerClass((currentClassIndex + 1) % playerClasses.length);
+        switchPlayerClass((currentClassIndex + 1) % playerClasses.length); // modulo to avoid going out of the array
     });
 
+    // Registering the event listener when we click the play button
     document.getElementById('play-button').addEventListener('click', () => {
         // Defensive resets (harmless on a fresh page load, matter if this
         // ever runs again without a full reload): a clean run always
@@ -622,6 +669,8 @@ function initMenu() {
     // Game over's only way back in -- see triggerGameOver(). Reloading is
     // simpler and far less error-prone than hand-resetting every piece of
     // mutable state (player position/rotation, cooldowns, arrays...).
+
+    // Event listener on the restart button, reloads the page
     document.getElementById('restart-button').addEventListener('click', () => {
         location.reload();
     });
@@ -629,13 +678,15 @@ function initMenu() {
     // Only way back in from the pause menu (see the pointerlockchange
     // listener in init()) -- re-requesting the lock from this click is
     // fine since a button click is itself a user gesture, same as PLAY.
+
+    // Event listener on the resume button
     document.getElementById('resume-button').addEventListener('click', () => {
         gamePaused = false;
         pauseMenuEl.classList.add('hidden');
         renderer.domElement.requestPointerLock();
     });
 
-    // Leaves the run entirely and returns to the initial screen. Same
+    // Leaves the run entirely and returns to the initial screen. Samescene
     // reasoning as restart-button: reloading lands back on #main-menu
     // with every piece of state (health, enemies, cooldowns, position...)
     // fresh, which is simpler and far less error-prone than resetting it
@@ -942,16 +993,19 @@ function toggleDimension() {
         // HUD label instead of the normal full-screen one, so it's clear
         // the press did NOT go through.
         dimensionValueEl.classList.remove('denied');
-        void dimensionValueEl.offsetWidth;
+        void dimensionValueEl.offsetWidth; // is here to force the reflow
         dimensionValueEl.classList.add('denied');
         return;
     }
 
+    // Displays the mode
     dimensionValueEl.textContent = isToonMode ? 'TOON' : 'REALISTIC';
 
     // Restarts the CSS flash animation even if triggered again mid-fade
     // (removing then re-adding the class doesn't restart a CSS animation
     // on its own -- forcing a reflow in between does).
+
+    // Even if is a success we do the flash
     dimensionFlashEl.classList.remove('flash');
     void dimensionFlashEl.offsetWidth;
     dimensionFlashEl.classList.add('flash');
@@ -962,11 +1016,15 @@ function toggleDimension() {
 // -- time left in Toon mode, or time left before it's available again.
 function updateDimensionHUD() {
     const { isToonMode, toonTimer, cooldownTimer } = getDimensionShiftStatus();
+
     if (isToonMode) {
+        // HUD timer of dimension Shift
         dimensionStatusEl.textContent = `— ${Math.ceil(toonTimer)}s left`;
     } else if (cooldownTimer > 0) {
+        // HUD of cooldown timer
         dimensionStatusEl.textContent = `— ready in ${Math.ceil(cooldownTimer)}s`;
     } else {
+        // There is no cooldown show that if you press tab you can dimension shift
         dimensionStatusEl.textContent = '— [TAB] to shift';
     }
 }
@@ -985,11 +1043,8 @@ function handleKeyboard(event, isKeyDown) {
     if (key === 'd' || key === 'arrowright') keys.d = isKeyDown;
     if (key === '1' && isKeyDown) switchWeapon(0); // primary (Rifle / SniperRifle, depending on class)
     if (key === '2' && isKeyDown) switchWeapon(1); // sidearm (Pistol)
-    // Class switching is a pre-game loadout choice, not a mid-run mechanic
-    // -- gated to the menu just like the menu's own prev/next arrows
-    if (key === 'c' && isKeyDown && !gameStarted) switchPlayerClass((currentClassIndex + 1) % playerClasses.length);
     if (key === 'tab') {
-        event.preventDefault(); // stop the browser from shifting focus to the next element
+        event.preventDefault(); // stop the browser from the normal behaviour while pressing tab
         // Gated to an active run -- its timers only tick inside
         // updateGame() (see updateDimensionShiftTimers()), so allowing it
         // from the menu/pause would let you "enter toon mode" with a
@@ -1003,7 +1058,7 @@ function handleKeyboard(event, isKeyDown) {
         event.preventDefault(); // stop the browser from scrolling the page on spacebar
         // event.repeat is true when the browser auto-fires keydown while
         // a key is held. We only want ONE jump per physical press.
-        if (isKeyDown && !event.repeat) {
+        if (isKeyDown && !event.repeat) { // we do not want to have event repeat, we want that the key is pressed only once even if the button is holded
             jump();
         }
     }
@@ -1249,17 +1304,24 @@ function updateGame(deltaTime) {
 
     // --- Shooting ---
     // shotCooldown counts down every frame; once it reaches 0 (and the
-    // left mouse button is held) we fire and reset it to fireRate. This
-    // gives a controlled, steady fire rate instead of one bullet per
+    // left mouse button is held) we fire and reset it to fireRate. 
+    // This gives a controlled, steady fire rate instead of one bullet per
     // frame (which at 60-144fps would be absurdly fast). Automatic
     // weapons (see Weapon.js) fire repeatedly for as long as the button
     // stays down; semi-auto ones also require shotFiredThisPress to
     // still be false, which caps them at one shot per press no matter
     // how long it's held -- it only goes back to false on mouseup.
+
+    // Retrieving the current weapon
     const currentWeapon = player.userData.playerClass.weapons[currentWeaponIndex];
+
+    // Decreasing the shootCooldown
     shotCooldown -= deltaTime;
+
     if (isMouseDown && shotCooldown <= 0 && (currentWeapon.automatic || !shotFiredThisPress)) {
         shootBullet();
+
+        // recharging the cooldown
         shotCooldown = currentWeapon.fireRate;
         if (!currentWeapon.automatic) shotFiredThisPress = true;
     }
@@ -1267,10 +1329,17 @@ function updateGame(deltaTime) {
     updateAimIndicator(); // light up the crosshair if it's currently over an enemy
 
     // --- Strength buff countdown ---
+    // im currently buffed
     if (strengthBuffTimer > 0) {
+
+        // Decreasing the timer
         strengthBuffTimer = Math.max(0, strengthBuffTimer - deltaTime);
+        // show the HUD row of the buff
         strengthBuffLineEl.classList.remove('hidden');
+        // Update the HUD timer (Math ceil round up)
         strengthBuffTimerEl.textContent = Math.ceil(strengthBuffTimer);
+
+        // We remove the HUD line, the buff is ended
         if (strengthBuffTimer === 0) strengthBuffLineEl.classList.add('hidden');
     }
     updateStrengthAura(deltaTime);
@@ -1289,10 +1358,6 @@ function updateGame(deltaTime) {
 //   they're currently on the ground (no mid-air double jumps).
 // - updateVerticalMovement() runs every frame: gravity constantly
 //   pulls velocityY down, and velocityY moves the player up/down.
-//   "The ground" isn't always y=0 anymore -- getGroundHeightAt()
-//   (environment.js) also checks the jump-platforms scattered around
-//   the arena and returns THEIR top instead, if the player is over one
-//   and high enough to be landing on it rather than passing through.
 // ============================================================
 function jump() {
     if (isGrounded) {
@@ -1302,16 +1367,21 @@ function jump() {
 }
 
 function updateVerticalMovement(deltaTime) {
-    velocityY += gravity * deltaTime;       // gravity accelerates the fall every frame
-    player.position.y += velocityY * deltaTime;
+    velocityY += gravity * deltaTime;       // gravity constantly decreases velocityY (slows a rise, then turns it into a fall)
 
+    // if velocity is still positive than the player is going up, otherwise is falling
+    player.position.y += velocityY * deltaTime; 
+
+    // At this position, what is the height of the ground?
     const groundY = getGroundHeightAt(environmentObstacles, player.position.x, player.position.z, player.position.y);
 
+    // If the gravity has pushed the player below the floor (because i was already on the floor)
     if (player.position.y <= groundY) {
         player.position.y = groundY;  // don't let the player fall through the floor (or a jump-platform's top)
         velocityY = 0;
         isGrounded = true;
     } else {
+        // im still on suspended in mid air
         isGrounded = false;
     }
 }
@@ -1329,9 +1399,13 @@ function updateVerticalMovement(deltaTime) {
 // Left leg and right arm swing together, right leg and left arm swing
 // together — this mimics how a real human gait alternates sides.
 // ============================================================
+
+// walkTime: It is the phase of the sine wave
+// amplitude: It is the amplitude of the sine wave
 function animateWalk(isMoving, deltaTime) {
     const { leftArm, rightArm, leftLeg, rightLeg } = player.userData;
 
+    // Only advance the walkTime sine wave while actually moving, 8 is the speed of the walk cycle, it can be adjusted to make the walk cycle faster or slower
     if (isMoving) {
         walkTime += deltaTime * 8; // 8 = how fast the legs swing (frequency)
     }
@@ -1347,104 +1421,113 @@ function animateWalk(isMoving, deltaTime) {
     rightArm.rotation.x = swing; // opposite to right leg, matches left leg's phase
 }
 
-// How far out along the camera's forward ray to aim when nothing's
-// actually under the crosshair (see getCrosshairTarget() below) -- a
-// plausible mid-combat distance, NOT an arbitrary "very far away" point.
+// Fallback aim point when no enemy is under the crosshair: a plausible
+// mid-combat distance along the camera's forward ray (see
+// getCrosshairTarget() below), not an arbitrary "very far away" point.
 const DEFAULT_AIM_DISTANCE = 20;
-// How far out to actually LOOK for an enemy to lock the aim onto --
-// wider than DEFAULT_AIM_DISTANCE, past the arena's own spawn ring
-// (arenaSpawnRadius), so a distant enemy still under the crosshair gets
-// aimed at correctly instead of falling back to the shorter default
-// (which would aim short of them, right where nothing actually is).
+
+// How far to search for an enemy under the crosshair before giving up
+// and using the fallback above. Wider than DEFAULT_AIM_DISTANCE, and
+// past the arena's spawn ring (arenaSpawnRadius = 29), so a distant
+// enemy still on-screen is aimed at correctly instead of the shot
+// falling short at the default distance.
 const AIM_SEARCH_DISTANCE = 40;
 
 // `fromPos` is ALWAYS the actual muzzle/spawn point (see
 // getBulletSpawnPoint()), even when this is called from
-// getCrosshairTarget()'s camera-based search below -- travel time has
-// to come from where the real bullet actually starts, not from
-// wherever the search itself happens to be looking from. The camera
-// sits a fixed several units behind the player regardless of how close
-// an enemy is TO the player, so using the camera's own distance here
-// would badly overestimate travel time for anything in melee range
-// (and, with it, how far to lead them) -- the shot would aim well past
-// a close, strafing enemy since it "expects" a much longer flight than
-// the short hop the real muzzle-to-target distance actually is.
+// getCrosshairTarget()'s camera-based search below 
 function predictEnemyPosition(enemy, fromPos, bulletSpeed) {
-    const travelTime = enemy.mesh.position.distanceTo(fromPos) / bulletSpeed;
-    return enemy.mesh.position.clone().addScaledVector(enemy.velocity, travelTime);
+
+    // Clone the enemy's current position to avoid mutating the original
+    const target = enemy.mesh.position.clone();
+
+    // compute the time it would take for a bullet to reach the enemy
+    const travelTime = target.distanceTo(fromPos) / bulletSpeed;
+
+    // target = enemyPosition + enemyVelocity * travelTime
+    // (enemyVelocity * travelTime) gives the distance the enemy will have moved in that time, and we add it to their current position to get the predicted position
+    target.addScaledVector(enemy.velocity, travelTime);
+
+    return target;
 }
 
-// Returns the world-space point the crosshair (screen center) is
-// CURRENTLY resting on -- the closest enemy actually lined up under it
-// (leading its predicted position, see predictEnemyPosition() above),
-// if any, otherwise a point DEFAULT_AIM_DISTANCE out along the camera's
-// own forward ray. `bulletSpeed` is the currently-equipped weapon's --
-// needed to estimate travel time for that leading. Shared by
-// shootBullet() and updateAimIndicator() below: aiming a weapon FROM
-// its muzzle TOWARD this point (rather than just firing along some
-// angle) is what makes the shot match the crosshair, regardless of the
-// muzzle's own offset from the camera -- same "aim toward a target
-// point" technique Boss.js's onAttack() already uses via leadTarget(),
-// just sourced from the camera instead of the player's position.
-// Targeting whatever's actually under the crosshair (rather than always
-// a fixed far point) matters BECAUSE of that same muzzle/camera offset:
-// with the over-the-shoulder framing (see updateCamera()) the two are
-// now a couple of units apart, so a FIXED far-away target only pulls
-// the muzzle's aim into line with the crosshair by the time the shot is
-// nearly at that point -- at any normal combat range well short of it,
-// the shot would still look like it's just travelling straight out of
-// the barrel instead of visibly converging on the crosshair. Aiming at
-// whatever's actually close by under the crosshair fixes that at the
-// range that's actually relevant.
+// Goal: find where the bullet have to aim when starts, so that can hit what the player is actually looking under the crosshair
+// gun muzzle and camera do not match. The player would miss the shot (crosshair-camera, muzzle-ahead)
+// Return: a predicted position of an enemy locked by the crosshair or a point in front of the camera if no enemy is valid
 function getCrosshairTarget(bulletSpeed) {
+
+    // Where is the camera now
     const camPos = camera.position;
+
+    // What is the direction of the camera
+    // camPos + t * camDir is exactly the crosshair line
     const camDir = new THREE.Vector3();
     camera.getWorldDirection(camDir);
-    // For travel-time purposes ONLY (see predictEnemyPosition()) -- the
-    // ray search just below still starts from the camera, matching the
-    // crosshair; this is just about how far to lead a moving target.
+
+    // We need this only to call predictEnemyPosition
+    // The real search is below because have to match the user crosshair
     const spawnPos = getBulletSpawnPoint();
 
+    // Depth along the crosshair ray to the nearest enemy.
     let closestT = AIM_SEARCH_DISTANCE;
+
+    // Point to shot
     let hitPoint = null;
+
+    // For every alive enemy in the arena
     for (const enemy of enemies) {
+
+        // find the predicted position
         const predicted = predictEnemyPosition(enemy, spawnPos, bulletSpeed);
+
+        // Computing the vector that goes from the camera to the predicted enemy
         const ex = predicted.x - camPos.x;
         const ez = predicted.z - camPos.z;
-        const t = ex * camDir.x + ez * camDir.z; // distance along the ray to this enemy's closest approach (XZ)
-        if (t < 0 || t > closestT) continue;
 
+        // t = depth of the enemy along the crosshair ray (not its actual distance)
+        const t = ex * camDir.x + ez * camDir.z; 
+
+        // if the enemy is behind the camera or is too far
+        if (t < 0 || t > closestT) continue; // 1. Depth test
+
+        // lateral distance, How far the enemy is offset sideways from the exact center of the crosshair 
         const perpDist = Math.hypot(ex - camDir.x * t, ez - camDir.z * t);
-        if (perpDist >= enemy.hitRadius) continue;
+
+        // if the crosshair is too distant wrt the hitRadius of the enemy we skip it
+        if (perpDist >= enemy.hitRadius) continue; //2. horizzontal alignment test
 
         // Also confirm the ray is actually near this enemy's body height
         // at that point, not just lined up in XZ -- same body-center
         // approximation used everywhere else (see updateAimIndicator()).
-        // The tolerance is a generous FLOOR, not just hitRadius, for a
-        // structural reason: the camera always looks at a fixed point on
-        // the player (see updateCamera()) regardless of pitch, so at
-        // roughly the player's OWN distance -- exactly where a melee
-        // attacker standing right next to them sits -- the ray's height
-        // is locked close to that fixed point (head height) no matter
-        // how the player aims; pitching up/down barely moves it at that
-        // specific depth. A short, ground-level enemy's own center sits
-        // well below that, so a tolerance of just their hitRadius would
-        // almost never actually reach them at melee range, no matter how
-        // well-aimed the shot looks 
+
+        // The tolerance is a generous lower bound, not just hitRadius, for a
+        // structural reason: the camera is fixed, at close range the crosshair direction is stuck to the height of the camera
+        // since an enemy has the center of the body near to the ground we have to introduce a tolerance to cover the this case
+
+        // predicted.y is where the root of the enemy
         const enemyCenterY = predicted.y + enemy.hitRadius;
+
+        // Y component of the crosshair line
         const rayY = camPos.y + camDir.y * t;
         const verticalTolerance = Math.max(enemy.hitRadius, 1.3);
-        if (Math.abs(rayY - enemyCenterY) > verticalTolerance) continue;
 
+        // if the crosshair is too far from the enemy center we skip it
+        if (Math.abs(rayY - enemyCenterY) > verticalTolerance) continue; //3. vertical alignment test
+        
+        // The enemy has succeded all the tests
         closestT = t;
+
+
         // The enemy's own actual (predicted) center -- 
         hitPoint = new THREE.Vector3(predicted.x, enemyCenterY, predicted.z);
     }
 
+    // return hitPoint if we have found an enemy 
+    // return a point in front of the camera if not
     return hitPoint ?? camPos.clone().addScaledVector(camDir, DEFAULT_AIM_DISTANCE);
 }
 
-
+// Return the gun's actual muzzle word position
 function getBulletSpawnPoint() {
     const spawnPos = new THREE.Vector3();
     player.userData.muzzle.getWorldPosition(spawnPos);
@@ -1456,17 +1539,19 @@ function getBulletSpawnPoint() {
 // Delegates to the current weapon's own shoot() (see Weapon.js): it
 // builds the bullet mesh, spawns it at the gun's actual muzzle (see
 // getBulletSpawnPoint() above) and aims it toward the crosshair (see
-// getCrosshairTarget() above) -- so shooting always lands exactly where
-// the camera is looking, whether that's dead ahead, up at something on
-// a platform, or down at something below. The shot's path is a straight
-// LINE the entire way (see Weapon.shoot()/updateBullets()) -- velocity
-// is computed once, right here, and never touched again after that.
+// getCrosshairTarget() above) 
 // ============================================================
 function shootBullet() {
+
+    // Retrieve the weapon
     const weapon = player.userData.playerClass.weapons[currentWeaponIndex];
+
+    // Build the bullet
     const bulletEntry = weapon.shoot(scene, getBulletSpawnPoint(), getCrosshairTarget(weapon.bulletSpeed));
+
     // Strength buff (see powerups/StrengthPickup.js) temporarily hits harder.
     if (strengthBuffTimer > 0) bulletEntry.damage = Math.round(bulletEntry.damage * strengthDamageMultiplier);
+
     bullets.push(bulletEntry);
 }
 
@@ -1478,19 +1563,30 @@ function shootBullet() {
 // or crosses the arena's outer wall -- so shots actually stop at
 // crates/pillars/the floor instead of sailing straight through them.
 function updateBullets(deltaTime) {
+
+    // For every alive bullet
     for (let i = bullets.length - 1; i >= 0; i--) {
+
         const b = bullets[i];
+
+        // Moving the projectile forward
+        // b.mesh.position.x += b.velocity.x * deltaTime;
+        // b.mesh.position.y += b.velocity.y * deltaTime;
+        // b.mesh.position.z += b.velocity.z * deltaTime;
         b.mesh.position.addScaledVector(b.velocity, deltaTime);
         b.age += deltaTime;
+
         // Keep the trailing tracer streak (see Weapon.js) glued directly
         // behind the bullet, along its own fixed direction of travel --
         // this is what makes the straight-line path plainly visible.
         b.tracer.position.copy(b.mesh.position).add(b.tracerOffset);
 
+        // Has the bullet collided with something in the new position?
         const pos = b.mesh.position;
-        const hitGround = pos.y <= getGroundHeightAt(environmentObstacles, pos.x, pos.z, pos.y);
+        const hitGround = pos.y <= getGroundHeightAt(environmentObstacles, pos.x, pos.z, pos.y); // Check if the bullet is below something
         const hitWall = Math.abs(pos.x) > bulletWallLimit || Math.abs(pos.z) > bulletWallLimit;
-
+        
+        // Check if is elapsed or if has hitted something
         if (b.age > b.lifetime || hitGround || hitWall || bulletBlockedByObstacle(pos.x, pos.z, pos.y)) {
             scene.remove(b.mesh); // stop rendering it
             scene.remove(b.tracer);
@@ -1501,55 +1597,71 @@ function updateBullets(deltaTime) {
 
 // ============================================================
 // AIM INDICATOR
-// #crosshair (index.html) is a plain 2D HUD element, permanently dead
-// center on screen via CSS -- nothing to position here. All this does
-// each frame is the same ray-vs-enemy test the old 3D beam used, along
-// the EXACT same ray Weapon.shoot() actually fires along (see
-// getBulletSpawnPoint()/getCrosshairTarget() above shootBullet(), in
-// Weapon.js), and toggles the crosshair's "hit" CSS class depending on
-// whether an enemy is currently under it -- a lit-up crosshair means
-// the next shot lands.
+// Goal: decide if the crosshair have to go on (became red), is only a visual feedback
+// If the bullet actually left the muzzle now toward that target, would it actually hit it?
+// Does not return anything, it has only a consequence on the css 
+// similar to getCrosshairTarget()
 // ============================================================
 function updateAimIndicator() {
+
+    // Retrieving the weapon
     const weapon = player.userData.playerClass.weapons[currentWeaponIndex];
 
+    // We need this only to call the functions (we re retrieving where is the muzzle of the gun in this moment)
     const origin = getBulletSpawnPoint();
+
+    // Get the direction of the bullet
     const direction = new THREE.Vector3().subVectors(getCrosshairTarget(weapon.bulletSpeed), origin).normalize();
 
     // Never claims a longer reach than this weapon's own bullets actually have.
     const maxDistance = weapon.bulletSpeed * weapon.bulletLifetime;
 
     let hitEnemy = false;
+
+    // For every alive enemy
     for (const enemy of enemies) {
-        // Same leading as getCrosshairTarget() above -- keeps this "will
-        // it land" cue consistent with what actually happens: a strafing
-        // enemy currently dead under the crosshair but about to step out
-        // from under a slow shot shouldn't light up as a sure hit.
+        
+        // find the predicted position of the enemy
         const predicted = predictEnemyPosition(enemy, origin, weapon.bulletSpeed);
+
+        // Computing the vector that goes from the muzzle to the predicted position
         const ex = predicted.x - origin.x;
         const ez = predicted.z - origin.z;
-        const t = ex * direction.x + ez * direction.z; // distance along the ray to this enemy's closest approach (XZ)
-        if (t < 0 || t > maxDistance) continue;
 
+        // t = depth of the enemy along the crosshair ray (not its actual distance)
+        const t = ex * direction.x + ez * direction.z; 
+
+        // if the enemy is behind the camera or is too far
+        if (t < 0 || t > maxDistance) continue; // 1. Depth test
+
+        // lateral distance, how far the enemy is offset sideways from the exact center of the crosshair
         const perpDist = Math.hypot(ex - direction.x * t, ez - direction.z * t);
-        if (perpDist >= enemy.hitRadius) continue;
+        if (perpDist >= enemy.hitRadius) continue; // 2. Horizzontal test
 
         // Also confirm the ray is actually near this enemy's body height
-        // at that point along its path, not just lined up in XZ. Enemies
-        // are rooted at their feet (mesh.position.y), so their body's
-        // rough vertical center sits about one hitRadius above that --
-        // same approximation the real bullet-hit check uses (see
-        // updateEnemies()), and same generous tolerance floor
-        // getCrosshairTarget() uses above (see its own comment on this).
+        // at that point, not just lined up in XZ -- same body-center
+        // approximation used everywhere else (see updateAimIndicator()).
+
+        // The tolerance is a generous lower bound, not just hitRadius, for a
+        // structural reason: the camera is fixed, at close range the crosshair direction is stuck to the height of the camera
+        // since an enemy has the center of the body near to the ground we have to introduce a tolerance to cover the this case
+
+        // predicted.y is where the root of the enemy
         const enemyCenterY = predicted.y + enemy.hitRadius;
+
+        // Y component of the crosshair line
         const rayY = origin.y + direction.y * t;
         const verticalTolerance = Math.max(enemy.hitRadius, 1.3);
-        if (Math.abs(rayY - enemyCenterY) > verticalTolerance) continue;
 
+        // if the crosshair is too far from the enemy center we skip it
+        if (Math.abs(rayY - enemyCenterY) > verticalTolerance) continue; // 3. Vertical alignment test
+
+        // all the test are passed in that position you would hit an enemy
         hitEnemy = true;
         break; // one confirmed target is enough -- nothing more to compute
     }
 
+    // if true adds the hit class, if false remove the hit class
     crosshairEl.classList.toggle('hit', hitEnemy);
 }
 
@@ -1625,7 +1737,11 @@ let waveBannerHideTimer = null;
 function showWaveBanner(text, durationMs) {
     waveBannerEl.textContent = text;
     waveBannerEl.classList.add('visible');
+
+    // if this function was already been called clear the timeout
     if (waveBannerHideTimer) clearTimeout(waveBannerHideTimer);
+
+    // Set the timeout when is elapsed then remove the banner
     waveBannerHideTimer = setTimeout(() => waveBannerEl.classList.remove('visible'), durationMs);
 }
 
@@ -1634,8 +1750,13 @@ function showWaveBanner(text, durationMs) {
 // the boss directly. Called once on PLAY (wave 1) and again every time
 // updateEnemies() detects the current wave has been fully cleared.
 function startWave(waveNumber) {
+
     currentWave = waveNumber;
+
+    // giving the waveNumber to html
     waveValueEl.textContent = waveNumber;
+
+    // If we have done all the waves then we are arrived to the boss wave
     isBossWave = waveNumber === totalWaves;
 
     if (isBossWave) {
@@ -1644,22 +1765,19 @@ function startWave(waveNumber) {
         spawnBoss();
         showWaveBanner('FINAL WAVE — DOOMHORN INCOMING', 3200);
     } else {
-        const count = waveSizes[waveNumber - 1];
-        waveSpawnQueue = count;
-        waveEnemiesRemaining = count;
+        const count = waveSizes[waveNumber - 1]; // Number of enemies for that wave
+        waveSpawnQueue = count; // Remaining enemies to spawn
+        waveEnemiesRemaining = count; // Remaining enemies alive
         showWaveBanner(`WAVE ${waveNumber}`, 2000);
     }
 }
 
 // Wave-dependent spawn weights for the four enemy types. Brute/Marksman are layered in ON TOP,
 // introduced gradually and capped, so they show up as an added threat
-// rather than crowding out the other two -- the waveSizes bump above is
-// what actually keeps Grunt/Shooter's ABSOLUTE spawn count from
-// dropping now that there are 4 types splitting each wave's pool
-// instead of 2.
+// rather than crowding out the other two
 function getEnemyTypeWeights(wave) {
     const shooterWeight = Math.min(30 + wave * 3, 55);
-    const gruntWeight = 100 - shooterWeight;
+    const gruntWeight = 100 - shooterWeight; // the more shooter the less grunt
     const bruteWeight = Math.min(5 + wave * 2, 25);
     const marksmanWeight = Math.min(5 + wave * 2, 25);
     return [
@@ -1671,13 +1789,22 @@ function getEnemyTypeWeights(wave) {
 }
 
 function pickWeightedEnemyType(wave) {
+
+    // Finding all the weights
     const weights = getEnemyTypeWeights(wave);
+
+    // Computing the sum of the weights
     const total = weights.reduce((sum, entry) => sum + entry.weight, 0);
+
+    // We pick a random number to take the enemy
     let r = Math.random() * total;
+
+    // For every enemy 
     for (const entry of weights) {
         if (r < entry.weight) return entry.Type;
         r -= entry.weight;
     }
+
     return weights[weights.length - 1].Type; // floating-point fallback, practically never hit
 }
 
@@ -1690,40 +1817,41 @@ function spawnEnemy() {
     const EnemyType = pickWeightedEnemyType(currentWave);
     const enemy = new EnemyType();
 
+    // Scaling the stats wrt the wave
     const scale = 1 + (currentWave - 1) * 0.1; // +10% health/damage per wave past the first
     enemy.maxHealth *= scale;
     enemy.health = enemy.maxHealth;
     enemy.damage = Math.round(enemy.damage * scale);
 
+    // Retrieve a random direction 
     const angle = Math.random() * Math.PI * 2;
-    enemy.mesh.position.set(Math.cos(angle) * arenaSpawnRadius, 0, Math.sin(angle) * arenaSpawnRadius);
+    enemy.mesh.position.set(Math.cos(angle) * arenaSpawnRadius, 0, Math.sin(angle) * arenaSpawnRadius); // polar coordinates -> cartesian
 
     scene.add(enemy.mesh);
     enemies.push(enemy);
 }
 
 function spawnBoss() {
+
     boss = new Boss();
-    boss.mesh.position.set(0, 0, arenaSpawnRadius); // +Z is "forward" at the player's default facing (see updateCamera()) -- the boss is visible immediately, not spawned behind them
+    boss.mesh.position.set(0, 0, arenaSpawnRadius);
     scene.add(boss.mesh);
     enemies.push(boss); // same array as everything else -- the collision loop below doesn't need to know it's special
 
+    // writes the boss's name into the dedicated UI label 
     bossNameEl.textContent = boss.name;
+    // writes the boss's name into the dedicated UI label
     bossBarContainerEl.classList.remove('hidden');
+    // syncs the bar's fill to the boss's actual health right after spawn
     updateBossBarUI();
 }
 
 function updateBossBarUI() {
     if (!boss) return;
+
+    // We need this to update the life bar of the boss (is a percentage for CSS)
     bossHealthFillEl.style.width = `${Math.max(0, boss.health / boss.maxHealth) * 100}%`;
 }
-
-// Runs every frame: handles the spawn timer (regular waves) or the
-// inter-wave pause, updates every enemy's AI (movement/facing/attack --
-// see Enemy.update()), and checks player bullets against every enemy
-// for a hit. Wave-clear detection lives at the bottom: once every
-// enemy queued for the current wave has been killed, either starts the
-// next wave or -- if this was the boss -- triggers victory.
 
 // DEV-ONLY convenience, bound to [N] (see handleKeyboard()): instantly
 // clears every enemy from -- and still queued for -- the current wave,
@@ -1733,7 +1861,11 @@ function updateBossBarUI() {
 // clear would. Lets every wave/the boss be reached and tested quickly
 // without actually fighting through each one first.
 function devSkipWave() {
+
+    // if the game is paused or you have win or you are transitioning there is nothing to do
     if (gamePaused || victoryActive || waveTransitioning) return;
+
+    // Remove each enemy
     enemies.forEach((e) => scene.remove(e.mesh));
     enemies = [];
     boss = null;
@@ -1741,9 +1873,20 @@ function devSkipWave() {
     waveEnemiesRemaining = 0;
 }
 
+// Runs every frame: handles the spawn timer (regular waves) or the
+// inter-wave pause, updates every enemy's AI (movement/facing/attack --
+// see Enemy.update()), and checks player bullets against every enemy
+// for a hit. Wave-clear detection lives at the bottom: once every
+// enemy queued for the current wave has been killed, either starts the
+// next wave or -- if this was the boss -- triggers victory.
+
 function updateEnemies(deltaTime) {
+
+    // if the wave is transitioning
     if (waveTransitioning) {
+        // We decrease the timer
         waveTransitionTimer -= deltaTime;
+        // Timer is elapsed start the new wave
         if (waveTransitionTimer <= 0) {
             waveTransitioning = false;
             startWave(currentWave + 1);
@@ -1751,14 +1894,22 @@ function updateEnemies(deltaTime) {
         return; // arena is momentarily clear between waves -- nothing else to do this frame
     }
 
+    // if is not the boss wave
     if (!isBossWave) {
+        // Decrease the timer (this timer tells how often can be spawned an enemy)
         enemySpawnTimer -= deltaTime;
+        // If the timer is elapsed and for that wave we have to still spawn enemies and there are less enemies than the maximum amount of alive enemies
         if (enemySpawnTimer <= 0 && waveSpawnQueue > 0 && enemies.length < maxConcurrentEnemies) {
+            // spawn the enemy
             spawnEnemy();
             waveSpawnQueue--;
             enemySpawnTimer = enemySpawnInterval;
         }
     }
+
+    // displacement (position - previousPosition) / time = velocity
+    playerVelocity.subVectors(player.position, previousPlayerPosition).divideScalar(Math.max(deltaTime, 0.0001));
+    previousPlayerPosition.copy(player.position);
 
     // Rebuilt fresh every frame and handed to each enemy's onAttack() (see
     // enemies/Enemy.js) -- melee enemies call dealDamageToPlayer directly,
@@ -1769,9 +1920,8 @@ function updateEnemies(deltaTime) {
     // last frame -- see Enemy.leadTarget() (enemies/Enemy.js), which
     // ranged enemies use to aim ahead of a moving player instead of
     // straight at their current spot.
-    playerVelocity.subVectors(player.position, previousPlayerPosition).divideScalar(Math.max(deltaTime, 0.0001));
-    previousPlayerPosition.copy(player.position);
 
+    // Useful to let every subclass of enemy use the tools of main
     const attackContext = {
         dealDamageToPlayer: damagePlayer,
         spawnEnemyBullet: (entry) => enemyBullets.push(entry),
@@ -1793,29 +1943,43 @@ function updateEnemies(deltaTime) {
         scene
     };
 
+    // For every alive enemy
     for (let i = enemies.length - 1; i >= 0; i--) {
         const enemy = enemies[i];
+
+        // update the enemy
         enemy.update(deltaTime, player.position, attackContext);
 
         // Player bullets vs. this enemy: an XZ-plane distance check, plus
-        // (now that bullets can travel up/down too -- see
-        // getCrosshairTarget() near shootBullet()) a vertical check
+        // a vertical check
         // against the enemy's rough body center, same
         // enemy.mesh.position.y + hitRadius approximation
         // updateAimIndicator() uses for its own hit prediction.
+
+        // For each alive bullet
         for (let j = bullets.length - 1; j >= 0; j--) {
             const b = bullets[j];
+
+            // computing the vector between the bullet and the enemy
             const dx = b.mesh.position.x - enemy.mesh.position.x;
             const dz = b.mesh.position.z - enemy.mesh.position.z;
+            // (enemy.mesh.position.y+ enemy.hitRadius) is a sort of approximation of the center of the body of an enemy
             const dy = b.mesh.position.y - (enemy.mesh.position.y + enemy.hitRadius);
+
+            // if the bullet is inside the enemy radius
             if (Math.hypot(dx, dz) < enemy.hitRadius && Math.abs(dy) < enemy.hitRadius) {
+
+                // Remove the bullet
                 scene.remove(b.mesh);
                 scene.remove(b.tracer);
                 bullets.splice(j, 1);
 
+                // Apply the damage
                 // Dimension Shift's "weak point" bonus -- see TOON_DAMAGE_MULTIPLIER above.
                 const damage = isToonDimension() ? b.damage * TOON_DAMAGE_MULTIPLIER : b.damage;
+                // Remove the damage and if the enemy is dead the enemy
                 if (enemy.takeDamage(damage)) {
+                    // Remove the enemy
                     scene.remove(enemy.mesh);
                     enemies.splice(i, 1);
                     waveEnemiesRemaining--;
@@ -1826,12 +1990,18 @@ function updateEnemies(deltaTime) {
         }
     }
 
+    // if we are fighting the boss update the bar
     if (isBossWave && boss) updateBossBarUI();
 
+    // If there are no remaining enemies
     if (waveEnemiesRemaining <= 0) {
+
+        // If was the boss wave you have won
         if (isBossWave) {
             triggerVictory();
         } else {
+
+            // if was not you have defeated the current wave
             showWaveBanner(`WAVE ${currentWave} CLEARED`, 2200);
             waveTransitioning = true;
             waveTransitionTimer = 3;
@@ -1845,27 +2015,39 @@ function updateEnemies(deltaTime) {
 // flies into the ground/a climbable obstacle's top, the solid body of a
 // non-climbable obstacle, or the arena's outer wall.
 function updateEnemyBullets(deltaTime) {
+
+    // For every enemyBullet alive
     for (let i = enemyBullets.length - 1; i >= 0; i--) {
         const b = enemyBullets[i];
+
+        // Moving the bullet forward
+        // b.mesh.position.x += b.velocity.x * deltaTime;
+        // b.mesh.position.y += b.velocity.y * deltaTime;
+        // b.mesh.position.z += b.velocity.z * deltaTime;
         b.mesh.position.addScaledVector(b.velocity, deltaTime);
         b.age += deltaTime;
 
+        // Understanding the new position if has collided something
         const pos = b.mesh.position;
+
+        // Computing the vector between the bullet and the player position
         const dx = pos.x - player.position.x;
         const dz = pos.z - player.position.z;
-        // Ranged enemies now aim up/down too (see Shooter.js/Marksman.js's
-        // onAttack()), so also check the shot's height against a rough
-        // vertical span for the player's body -- centered a bit above
-        // player.position (their feet) at roughly chest height.
         const dy = pos.y - (player.position.y + 0.9);
-        const hitPlayer = Math.hypot(dx, dz) < 0.6 && Math.abs(dy) < 1.1; // rough player hit radius
 
+        // Radius of 0.6 a little big bigger than the colliding one
+        const hitPlayer = Math.hypot(dx, dz) < 0.6 && Math.abs(dy) < 1.1; // rough player hit radius
+        // Check if the bullet is below something
         const hitGround = pos.y <= getGroundHeightAt(environmentObstacles, pos.x, pos.z, pos.y);
+        // Check if the bullet has collided a wall
         const hitWall = Math.abs(pos.x) > bulletWallLimit || Math.abs(pos.z) > bulletWallLimit;
 
         if (hitPlayer || b.age > b.lifetime || hitGround || hitWall || bulletBlockedByObstacle(pos.x, pos.z, pos.y)) {
+            // Remove the bullet
             scene.remove(b.mesh);
             enemyBullets.splice(i, 1);
+
+            // if has hitted the player remove the amount
             if (hitPlayer) damagePlayer(b.damage);
         }
     }
@@ -1880,23 +2062,31 @@ function updateEnemyBullets(deltaTime) {
 function damagePlayer(amount) {
     if (playerHealth <= 0) return; // already dead -- ignore further hits until the page reloads (see triggerGameOver())
 
+    // Incoming damage
     let remaining = amount;
+
+    // If the player has armor
     if (playerArmor > 0) {
+        // The armor cannot go negative (so if is going negative the armor removed is the armor that the player had)
         const absorbed = Math.min(playerArmor, remaining);
         playerArmor -= absorbed;
         remaining -= absorbed;
         updateArmorUI();
     }
 
+    // If after removing the armor there is still damage to take
     if (remaining > 0) {
+        // Remove the damage from health
         playerHealth = Math.max(0, playerHealth - remaining);
         updateHealthUI();
     }
 
+    // if you have lost all the health you have lose the game
     if (playerHealth <= 0) triggerGameOver();
 }
 
 function updateHealthUI() {
+    // Computing the percentage 
     const pct = playerHealth / playerMaxHealth;
     healthFillEl.style.width = `${pct * 100}%`;
     healthValueEl.textContent = Math.ceil(playerHealth);
@@ -1904,7 +2094,10 @@ function updateHealthUI() {
     healthFillEl.style.backgroundColor = pct > 0.5 ? '#00ffcc' : pct > 0.25 ? '#ffcc00' : '#ff3344';
 }
 
+
 function updateArmorUI() {
+
+    // Computing the percentage 
     const pct = playerArmor / playerMaxArmor;
     armorFillEl.style.width = `${pct * 100}%`;
     armorValueEl.textContent = Math.ceil(playerArmor);
@@ -1921,8 +2114,14 @@ function updateArmorUI() {
 // higher weight = more likely, but every type can still show up any
 // time there's room on the field.
 function pickWeightedPowerUpType() {
+
+    // Computing the sum of the weights
     const total = powerUpTypes.reduce((sum, entry) => sum + entry.weight, 0);
+
+    // We pick a random number to take the powerUp
     let r = Math.random() * total;
+
+    // For every powerUp
     for (const entry of powerUpTypes) {
         if (r < entry.weight) return entry.Type;
         r -= entry.weight;
@@ -1937,20 +2136,30 @@ function pickWeightedPowerUpType() {
 // fallback (dead center) is only ever reached if every attempt is
 // unlucky enough to land inside something, which is exceedingly rare.
 function findPowerUpSpawnPosition() {
+
     for (let attempt = 0; attempt < 8; attempt++) {
+
+        // 26 to be inside the arena boundaries
         const x = (Math.random() * 2 - 1) * 26; 
         const z = (Math.random() * 2 - 1) * 26;
+
+        // if that position does not collide with any obstacle
         if (!collidesWithObstacle(x, z, 0, 0.5)) return { x, z };
     }
     return { x: 0, z: 0 };
 }
 
 function spawnPowerUp() {
+
+    // if there is the maximum number of power ups do not spawn anything
     if (powerUps.length >= maxPowerUpsOnField) return;
 
+    // find the powerUp tipe and add it
     const Type = pickWeightedPowerUpType();
     const powerUp = new Type();
     const { x, z } = findPowerUpSpawnPosition();
+
+    // Group because the powerUp is not a single mesh
     powerUp.group.position.x = x;
     powerUp.group.position.z = z;
 
@@ -1962,15 +2171,21 @@ function spawnPowerUp() {
 // currently on the field (see PowerUp.update()), and picks up any that
 // the player is standing close enough to.
 function updatePowerUps(deltaTime) {
+
+    // Decreasing the timer to spawn a power up
     powerUpSpawnTimer -= deltaTime;
+
+    // If the poweUp can spawn we spawn it
     if (powerUpSpawnTimer <= 0) {
         spawnPowerUp();
+        // Restart the timer
         powerUpSpawnTimer = powerUpSpawnInterval;
     }
 
     // Built fresh every frame and handed to whichever power-up gets
     // picked up (see PowerUp.apply()) -- same "generic hook + context
     // object" pattern as enemies' attackContext above.
+    // Useful to let every subclass of powerUp use the tools of main
     const pickupContext = {
         healToFull: () => { playerHealth = playerMaxHealth; updateHealthUI(); },
         addArmor: (amount) => { playerArmor = Math.min(playerMaxArmor, playerArmor + amount); updateArmorUI(); },
@@ -1978,10 +2193,14 @@ function updatePowerUps(deltaTime) {
         activateStrengthBuff: () => { strengthBuffTimer = strengthBuffDuration; }
     };
 
+    // For every active powerUp
     for (let i = powerUps.length - 1; i >= 0; i--) {
         const powerUp = powerUps[i];
+
+        // update the powerUp
         powerUp.update(deltaTime);
 
+        // Remove it if is expired and go ahead
         if (powerUp.isExpired()) {
             scene.remove(powerUp.group);
             powerUps.splice(i, 1);
@@ -1997,9 +2216,12 @@ function updatePowerUps(deltaTime) {
             continue;
         }
 
+        // If the player is inside the pickupRadius
         const dx = player.position.x - powerUp.group.position.x;
         const dz = player.position.z - powerUp.group.position.z;
         if (Math.hypot(dx, dz) < powerUp.pickupRadius) {
+
+            // Apply the effect and remove from the scene
             powerUp.apply(pickupContext);
             scene.remove(powerUp.group);
             powerUps.splice(i, 1);
@@ -2016,14 +2238,27 @@ function triggerGameOver() {
     gameStarted = false; // set BEFORE exitPointerLock() so the resulting
                           // pointerlockchange event doesn't also open the pause menu
     gamePaused = false;
+
+    // Hide the pause menu
     pauseMenuEl.classList.add('hidden');
+
+    // Release the pointer
     document.exitPointerLock();
+
+    // hide the HUD
     uiOverlayEl.style.display = 'none';
     hudBottomRightEl.style.display = 'none';
+
+    // Hide the boss life bar
     bossBarContainerEl.classList.add('hidden');
+
+    // Hide the crosshair
     crosshairEl.classList.remove('visible');
+
+    // Hide the strengthAura
     strengthAura.visible = false;
     gameOverWaveEl.textContent = currentWave; // "WAVE REACHED" readout on the game-over panel
+    // Show the game over panel
     gameOverEl.classList.remove('hidden');
 }
 
@@ -2042,51 +2277,57 @@ function triggerVictory() {
     // animate()) -- everything player-driven keeps running.
     gamePaused = false;
     victoryActive = true;
+
+    // Remove the pause menu and the boss life bar
     pauseMenuEl.classList.add('hidden');
     bossBarContainerEl.classList.add('hidden');
 
+    // Show the victory banner
     victoryBannerEl.classList.add('visible');
 
+    // after VICTORY_DISPLAY_TIME reloads the page
     setTimeout(() => location.reload(), VICTORY_DISPLAY_TIME * 1000);
 }
 
 // ============================================================
 // CAMERA — mouse-controlled, orbits a pivot near the player.
 // ============================================================
+// Goal: updates the camera every frame, the camera is fixed behind the player, follows the mouse look
+// and is slightly on the side 
 function updateCamera() {
+
+    // Defining the pivot, the fixed point around which the camera orbits
     const pivotX = player.position.x;
-    const pivotY = player.position.y + cameraPivotHeight;
+    const pivotY = player.position.y + cameraPivotHeight; // To match the point on the shoulder
     const pivotZ = player.position.z;
 
-    // The one true look/aim direction 
+    // computing the vector that represents where the player is looking in this moment
     const forward = new THREE.Vector3(
         Math.sin(cameraYaw) * Math.cos(cameraPitch),
         -Math.sin(cameraPitch),
         Math.cos(cameraYaw) * Math.cos(cameraPitch)
     );
-    // Real camera-relative right/up (cross products, not a flat
-    // horizontal guess) -- this is what keeps the shoulder offset below
-    // looking like a consistent SCREEN-SPACE shift no matter how much
-    // cameraPitch is currently tilting the view up or down.
+    
+    // forward x worldUp -> perpendicular to both -> the camera's "right"
     const right = new THREE.Vector3().crossVectors(forward, new THREE.Vector3(0, 1, 0)).normalize();
+    // right x forward -> perpendicular to both -> the camera's true "up"
     const up = new THREE.Vector3().crossVectors(right, forward).normalize();
 
+    // starting from the pivot, we would like to compute the final position of the camera
     const orbitOffset = new THREE.Vector3(pivotX, pivotY, pivotZ)
-        .addScaledVector(forward, -cameraDistance)
+        .addScaledVector(forward, -cameraDistance)   // moving the CAMERA behind the player
         .addScaledVector(right, cameraShoulderRight) // moving the CAMERA right makes the character appear LEFT on screen
         .addScaledVector(up, cameraShoulderDown);    // moving the CAMERA up makes the character appear LOWER on screen
 
+    // Set the updated position of the camera
     camera.position.set(
         orbitOffset.x,
-        // Safety floor: minPitch allows tilting the orbit far enough that,
-        // at extreme angles, the raw formula could dip the camera very
-        // low (or, on paper, below the ground) -- this simply refuses to
-        // render from underground. It doesn't affect aim at all: shots
-        // still fire toward wherever the camera ACTUALLY ends up looking
-        // (see getCrosshairTarget()), clamped position included.
+        // To avoid going below the floor
         Math.max(orbitOffset.y, 0.5),
         orbitOffset.z
     );
+
+    // which way the camera is looking
     camera.lookAt(camera.position.x + forward.x, camera.position.y + forward.y, camera.position.z + forward.z);
 
     // Camera-following fill light: the scene's one shadow-casting
